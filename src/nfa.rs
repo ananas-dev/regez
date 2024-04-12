@@ -73,43 +73,44 @@ impl Nfa {
         self.graph[state] = State::Accepting;
     }
 
-    pub fn reduce_to_dfa(&self) {
-        let e_closure = self.e_closure();
-        let T = Nfa::new();
-        let q0 = e_closure.get(&self.start).unwrap();
-        let mut Q = q0.clone();
-        let mut work_list = Vec::from([q0]);
+    // pub fn reduce_to_dfa(&self) {
+    //     let e_closure = self.e_closure();
+    //     let T = Nfa::new();
+    //     let q0 = e_closure.get(&self.start).unwrap();
+    //     let mut Q = q0.clone();
+    //     let mut work_list = Vec::from([q0]);
 
-        while let Some(q) = work_list.pop() {
-            for &c in self.alphabet.iter() {
-                let mut t = HashSet::new();
+    //     while let Some(q) = work_list.pop() {
+    //         for &c in self.alphabet.iter() {
+    //             let mut t = HashSet::new();
 
-                for &el in q.iter() {
-                    // FIXME: Not efficient at all
-                    for edge in self.graph.edges_directed(el, petgraph::Direction::Outgoing) {
-                        if *edge.weight() == Transition::Char(c) {
-                            t.extend(e_closure.get(&el).unwrap());
-                        }
-                    }
-                }
+    //             for &el in q.iter() {
+    //                 // FIXME: Not efficient at all
+    //                 for edge in self.graph.edges_directed(el, petgraph::Direction::Outgoing) {
+    //                     if *edge.weight() == Transition::Char(c) {
+    //                         t.extend(e_closure.get(&el).unwrap());
+    //                     }
+    //                 }
+    //             }
 
-                // T.graph.index_twice_mut(i, j)
+    //             // T.graph.index_twice_mut(i, j)
 
-                if !t.is_subset(&Q) {
-                    Q.extend(t);
-                }
-            }
+    //             if !t.is_subset(&Q) {
+    //                 Q.extend(t);
+    //             }
+    //         }
 
-            println!("{:?}", Q);
-        }
-    }
+    //         println!("{:?}", Q);
+    //     }
+    // }
 
-    pub fn e_closure(&self) -> HashMap<NodeIndex, HashSet<NodeIndex>> {
-        let mut res: HashMap<NodeIndex, HashSet<NodeIndex>> = HashMap::new();
-        let node_indicies: Vec<NodeIndex> = self.graph.node_indices().collect();
+    pub fn e_closure<'a>(&'a self, node_indices: &'a [NodeIndex]) -> HashMap<NodeIndex, BitSet<NodeIndex>> {
+        let mut res: HashMap<NodeIndex, BitSet<NodeIndex>> = HashMap::new();
 
-        for &n in node_indicies.iter() {
-            let mut t = HashSet::from([n]);
+        for &n in node_indices.iter() {
+            let mut t = BitSet::empty(node_indices);
+
+            t.insert(n);
 
             for edge in self.graph.edges_directed(n, Direction::Outgoing) {
                 if *edge.weight() == Transition::Empty {
@@ -119,7 +120,7 @@ impl Nfa {
 
             res.insert(n, t);
         }
-        let mut work_list = BitSet::full(&node_indicies);
+        let mut work_list = BitSet::full(node_indices);
 
         while let Some(n) = work_list.pop() {
             let t = res.get(&n).unwrap().clone();
@@ -128,7 +129,7 @@ impl Nfa {
                 if *edge.weight() == Transition::Empty {
                     let m = edge.source();
                     // Backpropagate
-                    res.get_mut(&m).unwrap().extend(&t);
+                    res.get_mut(&m).unwrap().union(&t);
                     work_list.insert(m);
                 }
             }

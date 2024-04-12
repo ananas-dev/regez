@@ -6,6 +6,7 @@ use std::{
 use petgraph::{
     graph::{DiGraph, NodeIndex},
     visit::EdgeRef,
+    Direction,
 };
 
 use crate::bitset::BitSet;
@@ -31,10 +32,6 @@ pub enum State {
 
 //     }
 // }
-
-pub fn emclosure(a: HashSet<NodeIndex>) -> HashSet<NodeIndex> {
-    todo!()
-}
 
 #[derive(Clone)]
 pub struct Nfa {
@@ -76,55 +73,63 @@ impl Nfa {
         self.graph[state] = State::Accepting;
     }
 
-    pub fn reduce_to_dfa(&mut self) {
+    pub fn reduce_to_dfa(&self) {
+        let e_closure = self.e_closure();
         let T = Nfa::new();
-        let q0 = emclosure(HashSet::from([self.start]));
-        let Q = q0.clone();
+        let q0 = e_closure.get(&self.start).unwrap();
+        let mut Q = q0.clone();
         let mut work_list = Vec::from([q0]);
 
-        while !work_list.is_empty() {
-            let q = work_list.pop();
+        while let Some(q) = work_list.pop() {
+            for &c in self.alphabet.iter() {
+                let mut t = HashSet::new();
 
-            for c in self.alphabet.iter() {
-                let t = emclosure(todo!());
-                todo!();
+                for &el in q.iter() {
+                    // FIXME: Not efficient at all
+                    for edge in self.graph.edges_directed(el, petgraph::Direction::Outgoing) {
+                        if *edge.weight() == Transition::Char(c) {
+                            t.extend(e_closure.get(&el).unwrap());
+                        }
+                    }
+                }
+
+                // T.graph.index_twice_mut(i, j)
+
                 if !t.is_subset(&Q) {
                     Q.extend(t);
                 }
             }
+
+            println!("{:?}", Q);
         }
     }
 
-    pub fn emclosure(&self) -> HashMap<NodeIndex, HashSet<NodeIndex>> {
+    pub fn e_closure(&self) -> HashMap<NodeIndex, HashSet<NodeIndex>> {
         let mut res: HashMap<NodeIndex, HashSet<NodeIndex>> = HashMap::new();
         let node_indicies: Vec<NodeIndex> = self.graph.node_indices().collect();
 
         for &n in node_indicies.iter() {
-            res.insert(n, HashSet::from([n]));
+            let mut t = HashSet::from([n]);
+
+            for edge in self.graph.edges_directed(n, Direction::Outgoing) {
+                if *edge.weight() == Transition::Empty {
+                    t.insert(edge.target());
+                }
+            }
+
+            res.insert(n, t);
         }
         let mut work_list = BitSet::full(&node_indicies);
 
         while let Some(n) = work_list.pop() {
-            let mut t = res.get(&n).cloned().unwrap();
+            let t = res.get(&n).unwrap().clone();
 
-            for &p in node_indicies.iter() {
-                if let Some(edge) = self.graph.find_edge(n, p) {
-                    if self.graph[edge] == Transition::Empty {
-                        t.insert(p);
-                    }
-                }
-            }
-
-            if t != *res.get(&n).unwrap() {
-                res.insert(n, t.clone());
-
-                for edge in self.graph.edges_directed(n, petgraph::Direction::Incoming) {
-                    if *edge.weight() == Transition::Empty {
-                        let m = edge.source();
-                        // Backpropagate
-                        res.insert(m, res.get(&m).unwrap().union(&t).cloned().collect());
-                        work_list.insert(m);
-                    }
+            for edge in self.graph.edges_directed(n, Direction::Incoming) {
+                if *edge.weight() == Transition::Empty {
+                    let m = edge.source();
+                    // Backpropagate
+                    res.get_mut(&m).unwrap().extend(&t);
+                    work_list.insert(m);
                 }
             }
         }

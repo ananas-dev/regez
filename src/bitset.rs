@@ -34,9 +34,6 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
             }
         }
 
-        println!("{:b}", v[0]);
-        println!("{}", size);
-
         BitSet {
             universe,
             v,
@@ -135,7 +132,6 @@ mod tests {
         // bitset1.union(&bitset2);
 
         let expected_v = vec![0; (universe1.len() / 64) + 1]; // Update this with the expected result
-        println!("AAAAAAAAAAAAAAAAAAAAA {:?}", bitset1.v);
         assert_eq!(bitset1.v, expected_v);
     }
 }

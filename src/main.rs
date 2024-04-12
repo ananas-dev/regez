@@ -15,7 +15,10 @@ fn main() {
     let nfa = parser.parse();
     // println!("{:?}", Dot::with_config(&nfa.graph, &[Config::NodeIndexLabel]));
 
-    // let node_indices: Vec<NodeIndex>= nfa.graph.node_indices().collect();
-    let test = nfa.emclosure();
-    println!("{:#?}", test);
+    let node_indices: Vec<NodeIndex>= nfa.graph.node_indices().collect();
+    let test = nfa.e_closure(&node_indices);
+    // println!("{:#?}", test);
+
+    let dfa = nfa.reduce_to_dfa();
+    println!("{:?}", Dot::with_config(&dfa.graph, &[Config::NodeIndexLabel]));
 }

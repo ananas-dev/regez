@@ -1,12 +1,9 @@
-use std::{
-    collections::{hash_set, HashMap, HashSet},
-    hash::Hash,
-};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use petgraph::{
     graph::{DiGraph, NodeIndex},
     visit::EdgeRef,
-    Direction,
+    Direction, Graph,
 };
 
 use crate::bitset::BitSet;
@@ -37,7 +34,7 @@ pub enum State {
 pub struct Nfa {
     pub graph: DiGraph<State, Transition>,
     pub start: NodeIndex,
-    pub alphabet: HashSet<char>,
+    pub alphabet: FxHashSet<char>,
 }
 
 impl Nfa {
@@ -45,7 +42,7 @@ impl Nfa {
         Nfa {
             graph: DiGraph::new(),
             start: 0.into(),
-            alphabet: HashSet::new(),
+            alphabet: FxHashSet::default(),
         }
     }
 
@@ -73,39 +70,58 @@ impl Nfa {
         self.graph[state] = State::Accepting;
     }
 
-    // pub fn reduce_to_dfa(&self) {
-    //     let e_closure = self.e_closure();
-    //     let T = Nfa::new();
-    //     let q0 = e_closure.get(&self.start).unwrap();
-    //     let mut Q = q0.clone();
-    //     let mut work_list = Vec::from([q0]);
+    pub fn reduce_to_dfa(&self) -> Nfa {
+        let node_indices: Vec<NodeIndex> = self.graph.node_indices().collect();
+        let e_closure = self.e_closure(&node_indices);
+        // let T = vec![Vec::new(); self.alphabet.len()];
+        let mut T = Nfa::new();
+        let mut node_map: FxHashMap<BitSet<NodeIndex>, NodeIndex> = FxHashMap::default();
+        let q0 = e_closure.get(&self.start).unwrap();
+        let mut Q = Vec::from([q0.clone()]);
+        node_map.insert(q0.clone(), T.add_state());
+        let mut work_list = Vec::from([q0.clone()]);
 
-    //     while let Some(q) = work_list.pop() {
-    //         for &c in self.alphabet.iter() {
-    //             let mut t = HashSet::new();
+        while let Some(q) = work_list.pop() {
+            for &c in self.alphabet.iter() {
+                let mut t = BitSet::empty(&node_indices);
 
-    //             for &el in q.iter() {
-    //                 // FIXME: Not efficient at all
-    //                 for edge in self.graph.edges_directed(el, petgraph::Direction::Outgoing) {
-    //                     if *edge.weight() == Transition::Char(c) {
-    //                         t.extend(e_closure.get(&el).unwrap());
-    //                     }
-    //                 }
-    //             }
+                for el in q.iter() {
+                    // println!("q: {:?}", q);
+                    for edge in self.graph.edges_directed(el, Direction::Outgoing) {
+                        // println!("edge: {:?} -{:?}-> {:?}", edge.source(), edge.weight(), edge.target());
+                        if *edge.weight() == Transition::Char(c) {
+                            t.union(e_closure.get(&edge.target()).unwrap());
+                        }
+                    }
+                }
 
-    //             // T.graph.index_twice_mut(i, j)
+                // T.graph.index_twice_mut(i, j)
+                // println!("T[{q:?}, {c}] = {t:?}");
 
-    //             if !t.is_subset(&Q) {
-    //                 Q.extend(t);
-    //             }
-    //         }
+                if !Q.contains(&t) && t.len() != 0 {
+                    node_map.insert(t.clone(), T.add_state());
+                    Q.push(t.clone());
+                    work_list.push(t.clone());
+                }
 
-    //         println!("{:?}", Q);
-    //     }
-    // }
+                if let Some(q_index) = node_map.get(&q) {
+                    if let Some(t_index) = node_map.get(&t) {
+                        T.add_transition(*q_index, *t_index, Transition::Char(c));
+                    }
+                }
 
-    pub fn e_closure<'a>(&'a self, node_indices: &'a [NodeIndex]) -> HashMap<NodeIndex, BitSet<NodeIndex>> {
-        let mut res: HashMap<NodeIndex, BitSet<NodeIndex>> = HashMap::new();
+            }
+        }
+
+        // println!("{:#?}", Q);
+        T
+    }
+
+    pub fn e_closure<'a>(
+        &'a self,
+        node_indices: &'a [NodeIndex],
+    ) -> FxHashMap<NodeIndex, BitSet<NodeIndex>> {
+        let mut res: FxHashMap<NodeIndex, BitSet<NodeIndex>> = FxHashMap::default();
 
         for &n in node_indices.iter() {
             let mut t = BitSet::empty(node_indices);

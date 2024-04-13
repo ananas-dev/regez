@@ -76,12 +76,16 @@ impl Nfa {
         let mut dfa = Nfa::new();
         let mut node_map: FxHashMap<BitSet<NodeIndex>, NodeIndex> = FxHashMap::default();
         let q0 = e_closure.get(&self.start).unwrap();
-        let q0_index = dfa.add_state();
-        node_map.insert(q0.clone(), q0_index);
-        dfa.set_start(q0_index);
 
-        if self.graph[self.start] == State::Accepting {
-            dfa.make_accepting(q0_index)
+        {
+            let q0_index = dfa.add_state();
+
+            node_map.insert(q0.clone(), q0_index);
+            dfa.set_start(q0_index);
+
+            if q0.iter().any(|i| self.graph[i] == State::Accepting) {
+                dfa.make_accepting(q0_index);
+            }
         }
 
         let mut work_list = Vec::from([q0.clone()]);

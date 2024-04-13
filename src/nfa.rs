@@ -14,7 +14,7 @@ pub enum Transition {
     Empty,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum State {
     Accepting,
     NotAccepting,
@@ -73,12 +73,17 @@ impl Nfa {
     pub fn reduce_to_dfa(&self) -> Nfa {
         let node_indices: Vec<NodeIndex> = self.graph.node_indices().collect();
         let e_closure = self.e_closure(&node_indices);
-        // let T = vec![Vec::new(); self.alphabet.len()];
-        let mut T = Nfa::new();
+        let mut dfa = Nfa::new();
         let mut node_map: FxHashMap<BitSet<NodeIndex>, NodeIndex> = FxHashMap::default();
         let q0 = e_closure.get(&self.start).unwrap();
-        let mut Q = Vec::from([q0.clone()]);
-        node_map.insert(q0.clone(), T.add_state());
+        let q0_index = dfa.add_state();
+        node_map.insert(q0.clone(), q0_index);
+        dfa.set_start(q0_index);
+
+        if self.graph[self.start] == State::Accepting {
+            dfa.make_accepting(q0_index)
+        }
+
         let mut work_list = Vec::from([q0.clone()]);
 
         while let Some(q) = work_list.pop() {
@@ -86,35 +91,33 @@ impl Nfa {
                 let mut t = BitSet::empty(&node_indices);
 
                 for el in q.iter() {
-                    // println!("q: {:?}", q);
                     for edge in self.graph.edges_directed(el, Direction::Outgoing) {
-                        // println!("edge: {:?} -{:?}-> {:?}", edge.source(), edge.weight(), edge.target());
                         if *edge.weight() == Transition::Char(c) {
                             t.union(e_closure.get(&edge.target()).unwrap());
                         }
                     }
                 }
 
-                // T.graph.index_twice_mut(i, j)
-                // println!("T[{q:?}, {c}] = {t:?}");
+                if !node_map.contains_key(&t) && t.len() != 0 {
+                    let node_idx = dfa.add_state();
+                    node_map.insert(t.clone(), node_idx);
 
-                if !Q.contains(&t) && t.len() != 0 {
-                    node_map.insert(t.clone(), T.add_state());
-                    Q.push(t.clone());
+                    if t.iter().any(|i| self.graph[i] == State::Accepting) {
+                        dfa.make_accepting(node_idx);
+                    }
+
                     work_list.push(t.clone());
                 }
 
                 if let Some(q_index) = node_map.get(&q) {
                     if let Some(t_index) = node_map.get(&t) {
-                        T.add_transition(*q_index, *t_index, Transition::Char(c));
+                        dfa.add_transition(*q_index, *t_index, Transition::Char(c));
                     }
                 }
-
             }
         }
 
-        // println!("{:#?}", Q);
-        T
+        dfa
     }
 
     pub fn e_closure<'a>(

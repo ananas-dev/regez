@@ -102,7 +102,7 @@ impl Nfa {
                     }
                 }
 
-                if t.len() != 0 && !node_map.contains_key(&t) {
+                if !t.is_empty() && !node_map.contains_key(&t) {
                     let node_idx = dfa.add_state();
                     node_map.insert(t.clone(), node_idx);
 

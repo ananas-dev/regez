@@ -4,12 +4,11 @@ use std::fmt::Debug;
 pub struct BitSet<'a, T> {
     universe: &'a [T],
     v: Vec<u64>,
-    len: usize,
 }
 
 impl<'a, T: PartialEq> PartialEq for BitSet<'a, T> {
     fn eq(&self, other: &Self) -> bool {
-        self.v == other.v && self.len == other.len
+        self.v == other.v
     }
 }
 
@@ -28,7 +27,6 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
         BitSet {
             universe,
             v: vec![0; (universe.len() / 64) + 1],
-            len: 0,
         }
     }
 
@@ -44,11 +42,17 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
             }
         }
 
-        BitSet { universe, v, len: size }
+        BitSet { universe, v }
     }
 
-    pub fn len(&self) -> usize {
-        self.len
+    pub fn is_empty(&self) -> bool {
+        for w in self.v.iter() {
+            if *w != 0 {
+                return false
+            }
+        }
+
+        true
     }
 
     pub fn contains(&self, element: T) -> bool {
@@ -62,14 +66,13 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
         if let Some(index) = self.universe.iter().position(|&x| x == element) {
             if self.v[index / 64] & 1 << (index % 64) == 0 {
                 self.v[index / 64] |= 1 << (index % 64);
-                self.len += 1;
             }
             return;
         }
     }
 
     pub fn pop(&mut self) -> Option<T> {
-        if self.len == 0 {
+        if self.is_empty() {
             return None;
         }
 
@@ -77,7 +80,6 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
             for shift in 0..64 {
                 if *w & 1 << shift != 0 {
                     *w ^= 1 << shift;
-                    self.len -= 1;
                     return Some(self.universe[i * 64 + shift]);
                 }
             }
@@ -93,8 +95,6 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
             .iter_mut()
             .zip(other.v.iter())
             .for_each(|(a, b)| *a |= b);
-
-        self.len = self.iter().count();
     }
 
     pub fn iter(&self) -> BitSetIterator<T> {
@@ -139,11 +139,9 @@ mod tests {
         bitset.insert(3);
 
         assert_eq!(bitset.v[0] & 0b11111, 0b00100);
-        assert_eq!(bitset.len, 1);
 
         bitset.insert(5);
         assert_eq!(bitset.v[0] & 0b11111, 0b10100);
-        assert_eq!(bitset.len, 2);
     }
 
     #[test]
@@ -155,7 +153,7 @@ mod tests {
         assert_eq!(bitset.pop(), Some(3));
 
         assert_eq!(bitset.v[0] & 0b11111, 0b00000);
-        assert_eq!(bitset.len, 0);
+        assert!(bitset.is_empty());
 
         assert_eq!(bitset.pop(), None);
 
@@ -164,7 +162,6 @@ mod tests {
         assert_eq!(bitset.pop(), Some(1));
 
         assert_eq!(bitset.v[0] & 0b11111, 0b11110);
-        assert_eq!(bitset.len, 4);
 
         bitset.pop();
         bitset.pop();

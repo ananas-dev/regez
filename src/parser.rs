@@ -100,6 +100,14 @@ impl Parser {
                 self.nfa.add_transition(s1, s2, Transition::Char(c));
                 (s1, s2)
             },
+            Token::Dot => {
+                self.advance();
+
+                let s1 = self.nfa.add_state();
+                let s2 = self.nfa.add_state();
+                self.nfa.add_transition(s1, s2, Transition::Any);
+                (s1, s2)
+            }
             _ => panic!("Invalid expression: {:?}", self.peek()),
         }
     }

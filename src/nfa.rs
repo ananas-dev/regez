@@ -1,16 +1,17 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use std::fmt::{Error, Write};
 
 use petgraph::{
     graph::{DiGraph, NodeIndex},
     visit::{EdgeRef, IntoNodeReferences},
-    Direction, Graph,
+    Direction,
 };
 
 use crate::bitset::BitSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transition {
+    Any,
     Char(char),
     Empty,
 }
@@ -35,7 +36,6 @@ pub enum State {
 pub struct Nfa {
     pub graph: DiGraph<State, Transition>,
     pub start: NodeIndex,
-    pub alphabet: FxHashSet<char>,
 }
 
 impl Nfa {
@@ -43,7 +43,6 @@ impl Nfa {
         Nfa {
             graph: DiGraph::new(),
             start: 0.into(),
-            alphabet: FxHashSet::default(),
         }
     }
 
@@ -52,10 +51,6 @@ impl Nfa {
     }
 
     pub fn add_transition(&mut self, s1: NodeIndex, s2: NodeIndex, transition: Transition) {
-        if let Transition::Char(c) = transition {
-            self.alphabet.insert(c);
-        }
-
         self.graph.add_edge(s1, s2, transition);
     }
 
@@ -92,31 +87,30 @@ impl Nfa {
         let mut work_list = Vec::from([q0.clone()]);
 
         while let Some(q) = work_list.pop() {
-            for &c in self.alphabet.iter() {
+            // FIXME inefficient
+            for el in q.iter() {
                 let mut t = BitSet::empty(&node_indices);
 
-                for el in q.iter() {
-                    for edge in self.graph.edges_directed(el, Direction::Outgoing) {
-                        if *edge.weight() == Transition::Char(c) {
-                            t.union(e_closure.get(&edge.target()).unwrap());
+                for edge in self.graph.edges_directed(el, Direction::Outgoing) {
+                    if *edge.weight() != Transition::Empty {
+                        t.union(e_closure.get(&edge.target()).unwrap());
+                    }
+
+                    if !t.is_empty() && !node_map.contains_key(&t) {
+                        let node_idx = dfa.add_state();
+                        node_map.insert(t.clone(), node_idx);
+
+                        if t.iter().any(|i| self.graph[i] == State::Accepting) {
+                            dfa.make_accepting(node_idx);
                         }
-                    }
-                }
 
-                if !t.is_empty() && !node_map.contains_key(&t) {
-                    let node_idx = dfa.add_state();
-                    node_map.insert(t.clone(), node_idx);
-
-                    if t.iter().any(|i| self.graph[i] == State::Accepting) {
-                        dfa.make_accepting(node_idx);
+                        work_list.push(t.clone());
                     }
 
-                    work_list.push(t.clone());
-                }
-
-                if let Some(q_index) = node_map.get(&q) {
-                    if let Some(t_index) = node_map.get(&t) {
-                        dfa.add_transition(*q_index, *t_index, Transition::Char(c));
+                    if let Some(q_index) = node_map.get(&q) {
+                        if let Some(t_index) = node_map.get(&t) {
+                            dfa.add_transition(*q_index, *t_index, *edge.weight());
+                        }
                     }
                 }
             }
@@ -178,6 +172,7 @@ impl Nfa {
         for edge in self.graph.edge_references() {
             let label = match edge.weight() {
                 Transition::Char(c) => *c,
+                Transition::Any => 'α',
                 Transition::Empty => 'ε',
             };
 
@@ -226,7 +221,6 @@ impl Nfa {
 
             write!(&mut s, "\tpush(&stack, {});\n", index.index())?;
             for neighbor in self.graph.neighbors_directed(index, Direction::Outgoing) {
-
                 let transition = self
                     .graph
                     .edges_connecting(index, neighbor)
@@ -235,10 +229,12 @@ impl Nfa {
                     .weight();
 
                 match transition {
-                    Transition::Char(c) => write!(&mut s, "\tif (c == '{}') goto s{};\n", c, neighbor.index())?,
+                    Transition::Char(c) => {
+                        write!(&mut s, "\tif (c == '{}') goto s{};\n", c, neighbor.index())?
+                    }
+                    Transition::Any => write!(&mut s, "\tgoto s{};\n", neighbor.index())?,
                     Transition::Empty => panic!("Cannot have empty transitions"),
                 }
-
             }
             s.push_str("\tgoto end;\n");
         }

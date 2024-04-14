@@ -6,7 +6,7 @@ use petgraph::{
 use scanner::Scanner;
 
 use std::process::{Command, Stdio};
-use std::{io::Write, os::unix::process};
+use std::io::Write;
 
 mod bitset;
 mod nfa;
@@ -30,7 +30,7 @@ fn render_graph(out_file: &str, content: &str) {
 }
 
 fn main() {
-    let input = "irl(irl)*";
+    let input = "f.ck";
     let mut scanner = Scanner::new(input.chars());
     let parser = Parser::new(scanner.scan_tokens());
 

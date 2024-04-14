@@ -7,6 +7,7 @@ pub enum Token {
     RightParen,
     Star,
     Union,
+    Dot,
     Error,
     Eof,
 }
@@ -32,6 +33,7 @@ impl<'a> Scanner<'a> {
                     '(' =>Token::LeftParen,
                     ')' => Token::RightParen,
                     '*' => Token::Star,
+                    '.' => Token::Dot,
                     '0'..='9' | 'a'..='z'| 'A'..='Z' => Token::Char(c),
                     _ => Token::Error,
                     

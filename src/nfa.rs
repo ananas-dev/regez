@@ -1,8 +1,9 @@
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::fmt::{Error, Write};
 
 use petgraph::{
     graph::{DiGraph, NodeIndex},
-    visit::EdgeRef,
+    visit::{EdgeRef, IntoNodeReferences},
     Direction, Graph,
 };
 
@@ -159,5 +160,105 @@ impl Nfa {
         }
 
         res
+    }
+
+    pub fn to_dot(&self) -> Result<String, Error> {
+        let mut s = String::new();
+
+        s.push_str("digraph {\n");
+        s.push_str("\trankdir=LR;\n");
+        s.push_str("\tnode [shape = circle];\n");
+
+        for (index, state) in self.graph.node_references() {
+            if *state == State::Accepting {
+                write!(&mut s, "\t{} [shape = doublecircle];\n", index.index())?;
+            }
+        }
+
+        for edge in self.graph.edge_references() {
+            let label = match edge.weight() {
+                Transition::Char(c) => *c,
+                Transition::Empty => 'ε',
+            };
+
+            write!(
+                &mut s,
+                "\t{} -> {} [label = {label}]\n",
+                edge.source().index(),
+                edge.target().index()
+            )?;
+        }
+
+        s.push_str("}");
+
+        Ok(s)
+    }
+
+    pub fn compile(&self) -> Result<String, Error> {
+        let mut res = String::from("#include \"stack.h\"\n\n");
+        let mut s = String::new();
+
+        let mut accepting_table = String::from("int accepting[] = {");
+
+        s.push_str("int matches(char *input) {\n");
+
+        s.push_str("\tint state;\n");
+        s.push_str("\tchar c;\n");
+        s.push_str("\tint cursor = 0;\n");
+        s.push_str("\tStack stack = {};\n");
+        s.push_str("\tstack_init(&stack);\n");
+        s.push_str("start:\n");
+        s.push_str("\tpush(&stack, -1);\n");
+        write!(&mut s, "\tgoto s{};\n", self.start.index())?;
+
+        for (index, state) in self.graph.node_references() {
+            write!(&mut s, "s{}:\n", index.index())?;
+
+            write!(&mut s, "\tstate = {};\n", index.index())?;
+            s.push_str("\tif ((c = input[cursor++]) == '\\0') goto end;\n");
+
+            if *state == State::Accepting {
+                write!(&mut accepting_table, "{}", "1,")?;
+                s.push_str("\tclear(&stack);\n");
+            } else {
+                write!(&mut accepting_table, "{}", "0,")?; // bit janky
+            }
+
+            write!(&mut s, "\tpush(&stack, {});\n", index.index())?;
+            for neighbor in self.graph.neighbors_directed(index, Direction::Outgoing) {
+
+                let transition = self
+                    .graph
+                    .edges_connecting(index, neighbor)
+                    .nth(0)
+                    .unwrap()
+                    .weight();
+
+                match transition {
+                    Transition::Char(c) => write!(&mut s, "\tif (c == '{}') goto s{};\n", c, neighbor.index())?,
+                    Transition::Empty => panic!("Cannot have empty transitions"),
+                }
+
+            }
+            s.push_str("\tgoto end;\n");
+        }
+
+        s.push_str("end:\n");
+
+        // s.push_str("\twhile (state != -1 && !accepting[state]) {\n");
+        // s.push_str("\t\tstate = pop(&stack);\n");
+        // // s.push_str("\t\trollback();\n");
+        // s.push_str("\t}\n");
+        s.push_str("\treturn accepting[state];\n");
+
+        s.push_str("}\n");
+
+        accepting_table.pop();
+        accepting_table.push_str("};\n\n");
+
+        res.extend(accepting_table.chars());
+        res.extend(s.chars());
+
+        Ok(res)
     }
 }

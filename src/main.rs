@@ -1,24 +1,44 @@
-use petgraph::{graph::NodeIndex, dot::{Config, Dot}};
-use scanner::Scanner;
 use parser::Parser;
+use petgraph::{
+    dot::{Config, Dot},
+    graph::NodeIndex,
+};
+use scanner::Scanner;
 
-mod nfa;
-mod scanner;
-mod parser;
+use std::process::{Command, Stdio};
+use std::{io::Write, os::unix::process};
+
 mod bitset;
+mod nfa;
+mod parser;
+mod scanner;
+
+fn render_graph(out_file: &str, content: &str) {
+    let mut process = Command::new("dot")
+        .args(["-T", "png", "-o", out_file])
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("failed to launch graphviz");
+
+    let stdin = process.stdin.as_mut().expect("failed to get stdin");
+
+    stdin
+        .write_all(content.as_bytes())
+        .expect("failed to write to stdin");
+
+    process.wait().expect("failed to wait for end of process");
+}
 
 fn main() {
-    let input = "a(b|c)*";
+    let input = "irl(irl)*";
     let mut scanner = Scanner::new(input.chars());
     let parser = Parser::new(scanner.scan_tokens());
 
     let nfa = parser.parse();
-    // println!("{:?}", Dot::with_config(&nfa.graph, &[]));
-
-    let node_indices: Vec<NodeIndex>= nfa.graph.node_indices().collect();
-    let test = nfa.e_closure(&node_indices);
-    // println!("{:#?}", test);
+    render_graph("stage1.png", &nfa.to_dot().unwrap());
 
     let dfa = nfa.reduce_to_dfa();
-    println!("{:?}", Dot::with_config(&dfa.graph, &[]));
+    render_graph("stage2.png", &dfa.to_dot().unwrap());
+
+    println!("{}", dfa.compile().unwrap());
 }

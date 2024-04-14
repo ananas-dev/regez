@@ -77,6 +77,17 @@ impl Parser {
             return (s1, s2)
         }
 
+        if self.matches(Token::QuestionMark) {
+            let s1 = self.nfa.add_state();
+            let s2 = self.nfa.add_state();
+
+            self.nfa.add_e_transition(s1, s2);
+            self.nfa.add_e_transition(s1, conn.0);
+            self.nfa.add_e_transition(conn.1, s2);
+
+            return (s1, s2)
+        }
+
         conn
     }
 

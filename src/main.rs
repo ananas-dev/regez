@@ -30,7 +30,7 @@ fn render_graph(out_file: &str, content: &str) {
 }
 
 fn main() {
-    let input = "a+bc";
+    let input = "[abc]efg";
     let mut scanner = Scanner::new(input.chars());
     let parser = Parser::new(scanner.scan_tokens());
 

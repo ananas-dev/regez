@@ -1,7 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{
-    collections::VecDeque,
-    fmt::{Error, Write},
+    collections::{HashSet, VecDeque},
+    fmt::{Debug, Error, Write},
 };
 
 use petgraph::{
@@ -12,10 +12,11 @@ use petgraph::{
 
 use crate::bitset::BitSet;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transition {
     Any,
     Char(char),
+    List(FxHashSet<char>),
     Empty,
 }
 
@@ -82,12 +83,12 @@ impl Nfa {
 
             let neighbors: Vec<NodeIndex> = self.graph.neighbors(node).collect();
             for neighbor in neighbors {
-                let transition = *self
+                let transition = self
                     .graph
                     .edges_connecting(node, neighbor)
                     .nth(0)
                     .unwrap()
-                    .weight();
+                    .weight().clone();
                 if let Some(&neighbor_clone) = mapping.get(&neighbor) {
                     let node_clone = *mapping.get(&node).unwrap();
                     self.add_transition(node_clone, neighbor_clone, transition);
@@ -105,7 +106,6 @@ impl Nfa {
     }
 
     pub fn reduce_to_dfa(&self) -> Nfa {
-        let node_indices: Vec<NodeIndex> = self.graph.node_indices().collect();
         let e_closure = self.e_closure();
         let mut dfa = Nfa::new();
         let mut node_map: FxHashMap<BitSet<NodeIndex>, NodeIndex> = FxHashMap::default();
@@ -117,7 +117,10 @@ impl Nfa {
             node_map.insert(q0.clone(), q0_index);
             dfa.set_start(q0_index);
 
-            if q0.iter().any(|i| self.graph[NodeIndex::new(i)] == State::Accepting) {
+            if q0
+                .iter()
+                .any(|i| self.graph[NodeIndex::new(i)] == State::Accepting)
+            {
                 dfa.make_accepting(q0_index);
             }
         }
@@ -129,7 +132,10 @@ impl Nfa {
             for el in q.iter() {
                 let mut t = BitSet::empty(self.graph.node_count());
 
-                for edge in self.graph.edges_directed(NodeIndex::new(el), Direction::Outgoing) {
+                for edge in self
+                    .graph
+                    .edges_directed(NodeIndex::new(el), Direction::Outgoing)
+                {
                     if *edge.weight() != Transition::Empty {
                         t.union(e_closure.get(&edge.target()).unwrap());
                     }
@@ -138,7 +144,9 @@ impl Nfa {
                         let node_idx = dfa.add_state();
                         node_map.insert(t.clone(), node_idx);
 
-                        if t.iter().any(|i| self.graph[NodeIndex::new(i)] == State::Accepting) {
+                        if t.iter()
+                            .any(|i| self.graph[NodeIndex::new(i)] == State::Accepting)
+                        {
                             dfa.make_accepting(node_idx);
                         }
 
@@ -147,7 +155,7 @@ impl Nfa {
 
                     if let Some(q_index) = node_map.get(&q) {
                         if let Some(t_index) = node_map.get(&t) {
-                            dfa.add_transition(*q_index, *t_index, *edge.weight());
+                            dfa.add_transition(*q_index, *t_index, edge.weight().clone());
                         }
                     }
                 }
@@ -157,9 +165,7 @@ impl Nfa {
         dfa
     }
 
-    pub fn e_closure(
-        &self,
-    ) -> FxHashMap<NodeIndex, BitSet<NodeIndex>> {
+    pub fn e_closure(&self) -> FxHashMap<NodeIndex, BitSet<NodeIndex>> {
         let mut res: FxHashMap<NodeIndex, BitSet<NodeIndex>> = FxHashMap::default();
 
         for n in self.graph.node_indices() {
@@ -210,9 +216,20 @@ impl Nfa {
 
         for edge in self.graph.edge_references() {
             let label = match edge.weight() {
-                Transition::Char(c) => *c,
-                Transition::Any => 'α',
-                Transition::Empty => 'ε',
+                Transition::Char(c) => format!("\"'{}'\"", *c),
+                Transition::List(l) => {
+                    let mut res = String::from("\"[");
+
+                    for c in l {
+                        res.push(*c);
+                    }
+
+                    res.push_str("]\"");
+
+                    res
+                },
+                Transition::Any => ".".to_string(),
+                Transition::Empty => "ε".to_string(),
             };
 
             write!(
@@ -270,6 +287,21 @@ impl Nfa {
                 match transition {
                     Transition::Char(c) => {
                         write!(&mut s, "\tif (c == '{}') goto s{};\n", c, neighbor.index())?
+                    }
+                    Transition::List(l) => {
+                        s.push_str("\tif (");
+
+                        for c in l {
+                            write!(&mut s, "c == '{c}' || ")?
+                        }
+
+                        // There has to be a cleaner way
+                        s.pop();
+                        s.pop();
+                        s.pop();
+                        s.pop();
+
+                        write!(&mut s, ") goto s{};\n", neighbor.index())?
                     }
                     Transition::Any => write!(&mut s, "\tgoto s{};\n", neighbor.index())?,
                     Transition::Empty => panic!("Cannot have empty transitions"),

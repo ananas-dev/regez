@@ -13,6 +13,7 @@ pub enum Token {
     Dot,
     QuestionMark,
     Plus,
+    Hyphen,
     Error,
     Eof,
 }
@@ -44,8 +45,8 @@ impl<'a> Scanner<'a> {
                     '.' => Token::Dot,
                     '?' => Token::QuestionMark,
                     '+' => Token::Plus,
-                    '0'..='9' | 'a'..='z'| 'A'..='Z' => Token::Char(c),
-                    _ => Token::Error,
+                    '-' => Token::Hyphen,
+                    c => Token::Char(c),
                     
                 }),
                 None => {

@@ -1,23 +1,31 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{
     collections::{HashSet, VecDeque},
-    fmt::{Debug, Error, Write},
+    fmt::{write, Debug, Display, Error, Write},
 };
 
 use petgraph::{
     graph::{DiGraph, Node, NodeIndex},
-    visit::{EdgeRef, IntoNodeReferences},
+    visit::{EdgeRef, IntoNodeReferences, NodeRef},
     Direction,
 };
 
 use crate::bitset::BitSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CharacterClass {
+    Range { from: char, to: char },
+    Char(char),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Transition {
     Any,
     Char(char),
-    InclusiveList(FxHashSet<char>),
-    ExclusiveList(FxHashSet<char>),
+    ClassList {
+        content: Vec<CharacterClass>,
+        inclusive: bool,
+    },
     Empty,
 }
 
@@ -25,6 +33,41 @@ pub enum Transition {
 pub enum State {
     Accepting,
     NotAccepting,
+}
+
+impl Display for CharacterClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CharacterClass::Range { from, to } => write!(f, "{from}-{to}")?,
+            CharacterClass::Char(c) => f.write_char(*c)?,
+        }
+
+        Ok(())
+    }
+}
+
+impl Display for Transition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Transition::ClassList { content, inclusive } => {
+                f.write_char('[')?;
+                if !*inclusive {
+                    f.write_char('^')?;
+                }
+
+                for class in content {
+                    std::fmt::Display::fmt(class, f)?;
+                }
+
+                f.write_char(']')?;
+            }
+            Transition::Char(c) => write!(f, "'{}'", *c)?,
+            Transition::Any => f.write_char('.')?,
+            Transition::Empty => f.write_char('ε')?,
+        }
+
+        Ok(())
+    }
 }
 
 // pub fn convert_to_dfa(nfa: &mut Nfa, start: NodeIndex) {
@@ -89,7 +132,8 @@ impl Nfa {
                     .edges_connecting(node, neighbor)
                     .nth(0)
                     .unwrap()
-                    .weight().clone();
+                    .weight()
+                    .clone();
                 if let Some(&neighbor_clone) = mapping.get(&neighbor) {
                     let node_clone = *mapping.get(&node).unwrap();
                     self.add_transition(node_clone, neighbor_clone, transition);
@@ -211,50 +255,66 @@ impl Nfa {
 
         for (index, state) in self.graph.node_references() {
             if *state == State::Accepting {
-                write!(&mut s, "\t{} [shape = doublecircle];\n", index.index())?;
+                write!(&mut s, "\t\"{}\" [shape = doublecircle];\n", index.index())?;
             }
         }
 
         for edge in self.graph.edge_references() {
-            let label = match edge.weight() {
-                Transition::Char(c) => format!("\"'{}'\"", *c),
-                Transition::InclusiveList(l) => {
-                    let mut res = String::from("\"[");
-
-                    for c in l {
-                        res.push(*c);
-                    }
-
-                    res.push_str("]\"");
-
-                    res
-                },
-                Transition::ExclusiveList(l) => {
-                    let mut res = String::from("\"[^");
-
-                    for c in l {
-                        res.push(*c);
-                    }
-
-                    res.push_str("]\"");
-
-                    res
-                },
-                Transition::Any => ".".to_string(),
-                Transition::Empty => "ε".to_string(),
-            };
-
             write!(
                 &mut s,
-                "\t{} -> {} [label = {label}]\n",
+                "\t\"{}\" -> \"{}\" [label = \"{}\"]\n",
                 edge.source().index(),
-                edge.target().index()
+                edge.target().index(),
+                edge.weight(),
             )?;
         }
 
         s.push_str("}");
 
         Ok(s)
+    }
+
+    fn c_condition(&self, t: &Transition) -> Result<String, Error> {
+        let mut res = String::new();
+        match t {
+            Transition::Any => (),
+            Transition::Char(c) => write!(&mut res, "if (c == '{c}') ")?,
+            Transition::ClassList { content, inclusive } => {
+                write!(&mut res, "if (")?;
+
+                for (index, class) in content.iter().enumerate() {
+                    match class {
+                        CharacterClass::Range { from, to } => {
+                            if *inclusive {
+                                write!(&mut res, "c >= '{from}' && c <= '{to}'")?
+                            } else {
+                                write!(&mut res, "c < '{from}' || c > '{to}'")?
+                            }
+                        },
+                        CharacterClass::Char(c) => {
+                            if *inclusive {
+                                write!(&mut res, "c == '{c}'")?
+                            } else {
+                                write!(&mut res, "c != '{c}'")?
+                            }
+                        },
+                    }
+
+                    if index < content.len() - 1 {
+                        if *inclusive {
+                            write!(&mut res, " || ")?;
+                        } else {
+                            write!(&mut res, " && ")?;
+                        }
+                    }
+                }
+
+                write!(&mut res, ") ")?
+            },
+            Transition::Empty => panic!(),
+        }
+
+        Ok(res)
     }
 
     pub fn compile(&self) -> Result<String, Error> {
@@ -296,43 +356,7 @@ impl Nfa {
                     .unwrap()
                     .weight();
 
-                match transition {
-                    Transition::Char(c) => {
-                        write!(&mut s, "\tif (c == '{}') goto s{};\n", c, neighbor.index())?
-                    }
-                    Transition::InclusiveList(l) => {
-                        s.push_str("\tif (");
-
-                        for c in l {
-                            write!(&mut s, "c == '{c}' || ")?
-                        }
-
-                        // There has to be a cleaner way
-                        s.pop();
-                        s.pop();
-                        s.pop();
-                        s.pop();
-
-                        write!(&mut s, ") goto s{};\n", neighbor.index())?
-                    },
-                    Transition::ExclusiveList(l) => {
-                        s.push_str("\tif (");
-
-                        for c in l {
-                            write!(&mut s, "c != '{c}' && ")?
-                        }
-
-                        // There has to be a cleaner way
-                        s.pop();
-                        s.pop();
-                        s.pop();
-                        s.pop();
-
-                        write!(&mut s, ") goto s{};\n", neighbor.index())?
-                    }
-                    Transition::Any => write!(&mut s, "\tgoto s{};\n", neighbor.index())?,
-                    Transition::Empty => panic!("Cannot have empty transitions"),
-                }
+                write!(&mut s, "\t{}goto s{};\n", self.c_condition(&transition)?, neighbor.index())?;
             }
             s.push_str("\tgoto end;\n");
         }

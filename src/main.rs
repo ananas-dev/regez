@@ -1,8 +1,4 @@
 use parser::Parser;
-use petgraph::{
-    dot::{Config, Dot},
-    graph::NodeIndex,
-};
 use scanner::Scanner;
 
 use std::process::{Command, Stdio};
@@ -30,7 +26,7 @@ fn render_graph(out_file: &str, content: &str) {
 }
 
 fn main() {
-    let input = "[^nbl]a";
+    let input = "[a-zA-Z0-9]+@[a-zA-Z0-9]+[.][a-z]+";
     let mut scanner = Scanner::new(input.chars());
     let parser = Parser::new(scanner.scan_tokens());
 

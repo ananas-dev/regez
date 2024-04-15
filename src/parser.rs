@@ -3,14 +3,18 @@ use std::collections::HashSet;
 use petgraph::graph::NodeIndex;
 use rustc_hash::FxHashSet;
 
-use crate::{nfa::{Nfa, Transition}, scanner::Token};
+use crate::{
+    nfa::{CharacterClass, Nfa, Transition},
+    scanner::Token,
+};
 
 // CFG
 // Expr ::= Concat `|` Concat
 // Concat ::= Duplication*
 // Duplication ::= Grouping`*` | Grouping`+` | Grouping`?` | Grouping
 // Grouping ::= `(` Expr `)` | BracketExpr
-// BracketExpr ::= `[` char* `]` | char
+// BracketExpr ::= `[` CharacterClass | `^`CharacterClass `]` | char
+// CharacterClass ::=
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -48,7 +52,7 @@ impl Parser {
             self.nfa.add_e_transition(conn1.1, s2);
             self.nfa.add_e_transition(conn2.1, s2);
 
-            return (s1, s2)
+            return (s1, s2);
         }
 
         conn1
@@ -66,10 +70,9 @@ impl Parser {
         (start, end)
     }
 
-
     fn duplication(&mut self) -> (NodeIndex, NodeIndex) {
         let conn = self.primary();
-        
+
         if self.matches(Token::Star) {
             let s1 = self.nfa.add_state();
             let s2 = self.nfa.add_state();
@@ -79,7 +82,7 @@ impl Parser {
             self.nfa.add_e_transition(conn.1, conn.0);
             self.nfa.add_e_transition(s1, s2);
 
-            return (s1, s2)
+            return (s1, s2);
         }
 
         if self.matches(Token::QuestionMark) {
@@ -90,7 +93,7 @@ impl Parser {
             self.nfa.add_e_transition(s1, conn.0);
             self.nfa.add_e_transition(conn.1, s2);
 
-            return (s1, s2)
+            return (s1, s2);
         }
 
         if self.matches(Token::Plus) {
@@ -105,7 +108,7 @@ impl Parser {
             self.nfa.add_e_transition(conn2.1, conn2.0);
             self.nfa.add_e_transition(s1, s2);
 
-            return (conn.0, s2)
+            return (conn.0, s2);
         }
 
         conn
@@ -122,7 +125,7 @@ impl Parser {
                 } else {
                     panic!("Unbalanced paren")
                 }
-            },
+            }
             Token::LeftBracket => {
                 self.advance();
 
@@ -135,22 +138,26 @@ impl Parser {
                 let s1 = self.nfa.add_state();
                 let s2 = self.nfa.add_state();
 
-                let mut list = FxHashSet::default();
+                let mut list = Vec::new();
 
                 while !self.matches(Token::RightBracket) {
-                    match self.advance() {
-                        Token::Char(c) => { list.insert(c); },
-                        t => panic!("Invalid token in bracket expr: {:?}", t),
-                    }
+                    list.push(self.character_class());
                 }
 
-                let transition = if inclusive {
-                    Transition::InclusiveList(list)
-                } else {
-                    Transition::ExclusiveList(list)
-                };
+                // let transition = if inclusive {
+                //     Transition::Any(list)
+                // } else {
+                //     Transition::ExclusiveList(list)
+                // };
 
-                self.nfa.add_transition(s1, s2, transition);
+                self.nfa.add_transition(
+                    s1,
+                    s2,
+                    Transition::ClassList {
+                        content: list,
+                        inclusive,
+                    },
+                );
                 (s1, s2)
             }
             Token::Char(c) => {
@@ -160,7 +167,7 @@ impl Parser {
                 let s2 = self.nfa.add_state();
                 self.nfa.add_transition(s1, s2, Transition::Char(c));
                 (s1, s2)
-            },
+            }
             Token::Dot => {
                 self.advance();
 
@@ -170,6 +177,32 @@ impl Parser {
                 (s1, s2)
             }
             _ => panic!("Invalid expression: {:?}", self.peek()),
+        }
+    }
+
+    fn character_class(&mut self) -> CharacterClass {
+        match self.advance() {
+            Token::Char(c1) => {
+                if self.matches(Token::Hyphen) {
+                    match self.advance() {
+                        Token::Char(c2) => CharacterClass::Range { from: c1, to: c2 },
+                        Token::Dot => CharacterClass::Char('.'),
+                        Token::QuestionMark => CharacterClass::Char('?'),
+                        Token::Plus => CharacterClass::Char('+'),
+                        Token::Star => CharacterClass::Char('*'),
+                        Token::Union => CharacterClass::Char('|'),
+                        t => panic!("Not implemented: {t:?}"),
+                    }
+                } else {
+                    CharacterClass::Char(c1)
+                }
+            }
+            Token::Dot => CharacterClass::Char('.'),
+            Token::QuestionMark => CharacterClass::Char('?'),
+            Token::Plus => CharacterClass::Char('+'),
+            Token::Star => CharacterClass::Char('*'),
+            Token::Union => CharacterClass::Char('|'),
+            t => panic!("Not implemented"),
         }
     }
 
@@ -201,5 +234,4 @@ impl Parser {
     fn is_at_end(&self) -> bool {
         self.peek() == Token::Eof
     }
-
 }

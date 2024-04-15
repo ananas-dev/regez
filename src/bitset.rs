@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, ops::Index};
+use std::marker::PhantomData;
 
 #[derive(Clone, Hash)]
 pub struct BitSet<T> {

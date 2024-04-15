@@ -1,8 +1,8 @@
-use rustc_hash::FxHashMap;
-use std::fmt::{Error, Write};
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::{collections::VecDeque, fmt::{Error, Write}};
 
 use petgraph::{
-    graph::{DiGraph, NodeIndex},
+    graph::{DiGraph, Node, NodeIndex},
     visit::{EdgeRef, IntoNodeReferences},
     Direction,
 };
@@ -64,6 +64,44 @@ impl Nfa {
 
     pub fn make_accepting(&mut self, state: NodeIndex) {
         self.graph[state] = State::Accepting;
+    }
+
+    pub fn clone_subgraph(&mut self, s1: NodeIndex, s2: NodeIndex) -> (NodeIndex, NodeIndex) {
+        let mut stack = VecDeque::new();
+        let mut visited = FxHashSet::default();
+        let mut mapping = FxHashMap::default();
+        stack.push_back(s1);
+        visited.insert(s1);
+        mapping.insert(s1, self.add_state());
+
+        while let Some(node) = stack.pop_front() {
+            visited.insert(node);
+
+            if node == s2 {
+                continue;
+            }
+
+            let neighbors: Vec<NodeIndex> = self.graph.neighbors(node).collect();
+            for neighbor in neighbors {
+                if !visited.contains(&neighbor) {
+                    let neighbor_clone = self.add_state();
+                    mapping.insert(neighbor, neighbor_clone);
+                    let node_clone = *mapping.get(&node).unwrap();
+                    let transition = *self.graph.edges_connecting(node, neighbor).nth(0).unwrap().weight();
+                    self.add_transition(node_clone, neighbor_clone, transition);
+
+                } else {
+                    let neighbor_clone = *mapping.get(&neighbor).unwrap();
+                    let node_clone = *mapping.get(&node).unwrap();
+                    let transition = *self.graph.edges_connecting(node, neighbor).nth(0).unwrap().weight();
+                    self.add_transition(node_clone, neighbor_clone, transition);
+
+                    stack.push_back(neighbor);
+                }
+            }
+        }
+
+        (*mapping.get(&s1).unwrap(), *mapping.get(&s2).unwrap())
     }
 
     pub fn reduce_to_dfa(&self) -> Nfa {

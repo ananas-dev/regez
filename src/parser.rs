@@ -88,6 +88,21 @@ impl Parser {
             return (s1, s2)
         }
 
+        if self.matches(Token::Plus) {
+            let conn2 = self.nfa.clone_subgraph(conn.0, conn.1);
+
+            let s1 = self.nfa.add_state();
+            let s2 = self.nfa.add_state();
+
+            self.nfa.add_e_transition(conn.1, s1);
+            self.nfa.add_e_transition(s1, conn2.0);
+            self.nfa.add_e_transition(conn2.1, s2);
+            self.nfa.add_e_transition(conn2.1, conn2.0);
+            self.nfa.add_e_transition(s1, s2);
+
+            return (conn.0, s2)
+        }
+
         conn
     }
 

@@ -9,6 +9,7 @@ pub enum Token {
     Union,
     Dot,
     QuestionMark,
+    Plus,
     Error,
     Eof,
 }
@@ -36,6 +37,7 @@ impl<'a> Scanner<'a> {
                     '*' => Token::Star,
                     '.' => Token::Dot,
                     '?' => Token::QuestionMark,
+                    '+' => Token::Plus,
                     '0'..='9' | 'a'..='z'| 'A'..='Z' => Token::Char(c),
                     _ => Token::Error,
                     

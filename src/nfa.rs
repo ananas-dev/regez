@@ -16,7 +16,8 @@ use crate::bitset::BitSet;
 pub enum Transition {
     Any,
     Char(char),
-    List(FxHashSet<char>),
+    InclusiveList(FxHashSet<char>),
+    ExclusiveList(FxHashSet<char>),
     Empty,
 }
 
@@ -217,8 +218,19 @@ impl Nfa {
         for edge in self.graph.edge_references() {
             let label = match edge.weight() {
                 Transition::Char(c) => format!("\"'{}'\"", *c),
-                Transition::List(l) => {
+                Transition::InclusiveList(l) => {
                     let mut res = String::from("\"[");
+
+                    for c in l {
+                        res.push(*c);
+                    }
+
+                    res.push_str("]\"");
+
+                    res
+                },
+                Transition::ExclusiveList(l) => {
+                    let mut res = String::from("\"[^");
 
                     for c in l {
                         res.push(*c);
@@ -288,11 +300,26 @@ impl Nfa {
                     Transition::Char(c) => {
                         write!(&mut s, "\tif (c == '{}') goto s{};\n", c, neighbor.index())?
                     }
-                    Transition::List(l) => {
+                    Transition::InclusiveList(l) => {
                         s.push_str("\tif (");
 
                         for c in l {
                             write!(&mut s, "c == '{c}' || ")?
+                        }
+
+                        // There has to be a cleaner way
+                        s.pop();
+                        s.pop();
+                        s.pop();
+                        s.pop();
+
+                        write!(&mut s, ") goto s{};\n", neighbor.index())?
+                    },
+                    Transition::ExclusiveList(l) => {
+                        s.push_str("\tif (");
+
+                        for c in l {
+                            write!(&mut s, "c != '{c}' && ")?
                         }
 
                         // There has to be a cleaner way

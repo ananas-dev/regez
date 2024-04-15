@@ -126,6 +126,12 @@ impl Parser {
             Token::LeftBracket => {
                 self.advance();
 
+                let mut inclusive = true;
+
+                if self.matches(Token::Carret) {
+                    inclusive = false;
+                }
+
                 let s1 = self.nfa.add_state();
                 let s2 = self.nfa.add_state();
 
@@ -138,7 +144,13 @@ impl Parser {
                     }
                 }
 
-                self.nfa.add_transition(s1, s2, Transition::List(list));
+                let transition = if inclusive {
+                    Transition::InclusiveList(list)
+                } else {
+                    Transition::ExclusiveList(list)
+                };
+
+                self.nfa.add_transition(s1, s2, transition);
                 (s1, s2)
             }
             Token::Char(c) => {

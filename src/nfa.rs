@@ -283,6 +283,10 @@ impl Nfa {
                 write!(&mut res, "if (")?;
 
                 for (index, class) in content.iter().enumerate() {
+                    if content.len() > 1 {
+                        res.push('(')
+                    }
+
                     match class {
                         CharacterClass::Range { from, to } => {
                             if *inclusive {
@@ -300,6 +304,10 @@ impl Nfa {
                         },
                     }
 
+                    if content.len() > 1 {
+                        res.push(')')
+                    }
+
                     if index < content.len() - 1 {
                         if *inclusive {
                             write!(&mut res, " || ")?;
@@ -308,7 +316,6 @@ impl Nfa {
                         }
                     }
                 }
-
                 write!(&mut res, ") ")?
             },
             Transition::Empty => panic!(),

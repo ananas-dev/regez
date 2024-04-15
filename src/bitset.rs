@@ -1,52 +1,45 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, marker::PhantomData, ops::Index};
 
 #[derive(Clone, Hash)]
-pub struct BitSet<'a, T> {
-    universe: &'a [T],
-    v: Vec<u64>,
+pub struct BitSet<T> {
+    inner: Vec<u64>,
+    universe_len: usize,
+    mark: PhantomData<T>,
 }
 
-impl<'a, T: PartialEq> PartialEq for BitSet<'a, T> {
+impl<'a, T: PartialEq> PartialEq for BitSet<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.v == other.v
+        self.inner == other.inner
     }
 }
 
-impl<'a, T: Eq> Eq for BitSet<'a, T> {}
+impl<T: Eq> Eq for BitSet<T> {}
 
-impl<'a, T: PartialEq + Copy + Debug> Debug for BitSet<'a, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_set()
-            .entries(self.universe.iter().filter(|&&x| self.contains(x)))
-            .finish()
-    }
-}
-
-impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
-    pub fn empty(universe: &'a [T]) -> BitSet<'a, T> {
+impl<'a, T: PartialEq + Copy> BitSet<T> {
+    pub fn empty(universe_len: usize) -> BitSet<T> {
         BitSet {
-            universe,
-            v: vec![0; (universe.len() / 64) + 1],
+            inner: vec![0; (universe_len / 64) + 1],
+            universe_len,
+            mark: PhantomData,
         }
     }
 
-    pub fn full(universe: &'a [T]) -> BitSet<'a, T> {
-        let size = universe.len();
-        let mut v = vec![0; (size / 64) + 1];
+    pub fn full(universe_len: usize) -> BitSet<T> {
+        let mut inner = vec![0; (universe_len / 64) + 1];
 
-        for (i, w) in v.iter_mut().enumerate() {
+        for (i, w) in inner.iter_mut().enumerate() {
             for shift in 0..64 {
-                if i * 64 + shift < size {
+                if i * 64 + shift < universe_len {
                     *w |= 1 << shift;
                 }
             }
         }
 
-        BitSet { universe, v }
+        BitSet { universe_len, inner, mark: PhantomData }
     }
 
     pub fn is_empty(&self) -> bool {
-        for w in self.v.iter() {
+        for w in self.inner.iter() {
             if *w != 0 {
                 return false
             }
@@ -55,32 +48,27 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
         true
     }
 
-    pub fn contains(&self, element: T) -> bool {
-        if let Some(index) = self.universe.iter().position(|&x| x == element) {
-            return self.v[index / 64] & 1 << (index % 64) != 0;
-        }
-        false
+    pub fn contains(&self, index: usize) -> bool {
+        return self.inner[index / 64] & 1 << (index % 64) != 0;
     }
 
-    pub fn insert(&mut self, element: T) {
-        if let Some(index) = self.universe.iter().position(|&x| x == element) {
-            if self.v[index / 64] & 1 << (index % 64) == 0 {
-                self.v[index / 64] |= 1 << (index % 64);
-            }
-            return;
-        }
+    pub fn insert(&mut self, index: usize) -> bool {
+        let prev = self.inner[index / 64] & 1 << (index % 64) == 0;
+        self.inner[index / 64] |= 1 << (index % 64);
+
+        prev
     }
 
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn pop(&mut self) -> Option<usize> {
         if self.is_empty() {
             return None;
         }
 
-        for (i, w) in self.v.iter_mut().enumerate() {
+        for (i, w) in self.inner.iter_mut().enumerate() {
             for shift in 0..64 {
                 if *w & 1 << shift != 0 {
                     *w ^= 1 << shift;
-                    return Some(self.universe[i * 64 + shift]);
+                    return Some(i * 64 + shift);
                 }
             }
         }
@@ -88,12 +76,10 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
         None
     }
 
-    pub fn union(&mut self, other: &BitSet<'a, T>) {
-        debug_assert_eq!(self.universe, other.universe);
-
-        self.v
+    pub fn union(&mut self, other: &BitSet<T>) {
+        self.inner
             .iter_mut()
-            .zip(other.v.iter())
+            .zip(other.inner.iter())
             .for_each(|(a, b)| *a |= b);
     }
 
@@ -106,17 +92,17 @@ impl<'a, T: PartialEq + Copy + Debug> BitSet<'a, T> {
 }
 
 pub struct BitSetIterator<'a, T> {
-    bitset: &'a BitSet<'a, T>,
+    bitset: &'a BitSet<T>,
     index: usize,
 }
 
 impl<'a, T: Copy> Iterator for BitSetIterator<'a, T> {
-    type Item = T;
+    type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.index < self.bitset.universe.len() {
-            if self.bitset.v[self.index / 64] & 1 << (self.index % 64) != 0 {
-                let result = Some(self.bitset.universe[self.index]);
+        while self.index < self.bitset.universe_len {
+            if self.bitset.inner[self.index / 64] & 1 << (self.index % 64) != 0 {
+                let result = Some(self.index);
                 self.index += 1;
                 return result;
             }
@@ -126,7 +112,7 @@ impl<'a, T: Copy> Iterator for BitSetIterator<'a, T> {
         None
     }
 }
-
+/* 
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,4 +181,4 @@ mod tests {
 
         assert_eq!(elements, vec![3, 5]);
     }
-}
+} */

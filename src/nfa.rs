@@ -1,5 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{collections::VecDeque, fmt::{Error, Write}};
+use std::{
+    collections::VecDeque,
+    fmt::{Error, Write},
+};
 
 use petgraph::{
     graph::{DiGraph, Node, NodeIndex},
@@ -68,34 +71,31 @@ impl Nfa {
 
     pub fn clone_subgraph(&mut self, s1: NodeIndex, s2: NodeIndex) -> (NodeIndex, NodeIndex) {
         let mut stack = VecDeque::new();
-        let mut visited = FxHashSet::default();
         let mut mapping = FxHashMap::default();
         stack.push_back(s1);
-        visited.insert(s1);
         mapping.insert(s1, self.add_state());
 
         while let Some(node) = stack.pop_front() {
-            visited.insert(node);
-
             if node == s2 {
                 continue;
             }
 
             let neighbors: Vec<NodeIndex> = self.graph.neighbors(node).collect();
             for neighbor in neighbors {
-                if !visited.contains(&neighbor) {
+                let transition = *self
+                    .graph
+                    .edges_connecting(node, neighbor)
+                    .nth(0)
+                    .unwrap()
+                    .weight();
+                if let Some(&neighbor_clone) = mapping.get(&neighbor) {
+                    let node_clone = *mapping.get(&node).unwrap();
+                    self.add_transition(node_clone, neighbor_clone, transition);
+                } else {
                     let neighbor_clone = self.add_state();
                     mapping.insert(neighbor, neighbor_clone);
                     let node_clone = *mapping.get(&node).unwrap();
-                    let transition = *self.graph.edges_connecting(node, neighbor).nth(0).unwrap().weight();
                     self.add_transition(node_clone, neighbor_clone, transition);
-
-                } else {
-                    let neighbor_clone = *mapping.get(&neighbor).unwrap();
-                    let node_clone = *mapping.get(&node).unwrap();
-                    let transition = *self.graph.edges_connecting(node, neighbor).nth(0).unwrap().weight();
-                    self.add_transition(node_clone, neighbor_clone, transition);
-
                     stack.push_back(neighbor);
                 }
             }
@@ -106,7 +106,7 @@ impl Nfa {
 
     pub fn reduce_to_dfa(&self) -> Nfa {
         let node_indices: Vec<NodeIndex> = self.graph.node_indices().collect();
-        let e_closure = self.e_closure(&node_indices);
+        let e_closure = self.e_closure();
         let mut dfa = Nfa::new();
         let mut node_map: FxHashMap<BitSet<NodeIndex>, NodeIndex> = FxHashMap::default();
         let q0 = e_closure.get(&self.start).unwrap();
@@ -117,7 +117,7 @@ impl Nfa {
             node_map.insert(q0.clone(), q0_index);
             dfa.set_start(q0_index);
 
-            if q0.iter().any(|i| self.graph[i] == State::Accepting) {
+            if q0.iter().any(|i| self.graph[NodeIndex::new(i)] == State::Accepting) {
                 dfa.make_accepting(q0_index);
             }
         }
@@ -127,9 +127,9 @@ impl Nfa {
         while let Some(q) = work_list.pop() {
             // FIXME inefficient
             for el in q.iter() {
-                let mut t = BitSet::empty(&node_indices);
+                let mut t = BitSet::empty(self.graph.node_count());
 
-                for edge in self.graph.edges_directed(el, Direction::Outgoing) {
+                for edge in self.graph.edges_directed(NodeIndex::new(el), Direction::Outgoing) {
                     if *edge.weight() != Transition::Empty {
                         t.union(e_closure.get(&edge.target()).unwrap());
                     }
@@ -138,7 +138,7 @@ impl Nfa {
                         let node_idx = dfa.add_state();
                         node_map.insert(t.clone(), node_idx);
 
-                        if t.iter().any(|i| self.graph[i] == State::Accepting) {
+                        if t.iter().any(|i| self.graph[NodeIndex::new(i)] == State::Accepting) {
                             dfa.make_accepting(node_idx);
                         }
 
@@ -157,28 +157,28 @@ impl Nfa {
         dfa
     }
 
-    pub fn e_closure<'a>(
-        &'a self,
-        node_indices: &'a [NodeIndex],
+    pub fn e_closure(
+        &self,
     ) -> FxHashMap<NodeIndex, BitSet<NodeIndex>> {
         let mut res: FxHashMap<NodeIndex, BitSet<NodeIndex>> = FxHashMap::default();
 
-        for &n in node_indices.iter() {
-            let mut t = BitSet::empty(node_indices);
+        for n in self.graph.node_indices() {
+            let mut t = BitSet::empty(self.graph.node_count());
 
-            t.insert(n);
+            t.insert(n.index());
 
             for edge in self.graph.edges_directed(n, Direction::Outgoing) {
                 if *edge.weight() == Transition::Empty {
-                    t.insert(edge.target());
+                    t.insert(edge.target().index());
                 }
             }
 
             res.insert(n, t);
         }
-        let mut work_list = BitSet::full(node_indices);
+        let mut work_list: BitSet<NodeIndex> = BitSet::full(self.graph.node_count());
 
         while let Some(n) = work_list.pop() {
+            let n = NodeIndex::new(n);
             let t = res.get(&n).unwrap().clone();
 
             for edge in self.graph.edges_directed(n, Direction::Incoming) {
@@ -186,7 +186,7 @@ impl Nfa {
                     let m = edge.source();
                     // Backpropagate
                     res.get_mut(&m).unwrap().union(&t);
-                    work_list.insert(m);
+                    work_list.insert(m.index());
                 }
             }
         }

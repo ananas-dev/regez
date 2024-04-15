@@ -11,7 +11,7 @@ use crate::{
 // CFG
 // Expr ::= Concat `|` Concat
 // Concat ::= Duplication*
-// Duplication ::= Grouping`*` | Grouping`+` | Grouping`?` | Grouping
+// Duplication ::= Grouping`*` | Grouping`+` | Grouping`?` | Grouping`{`(0-9)*`}` | Grouping
 // Grouping ::= `(` Expr `)` | BracketExpr
 // BracketExpr ::= `[` CharacterClass | `^`CharacterClass `]` | char
 // CharacterClass ::=
@@ -73,43 +73,68 @@ impl Parser {
     fn duplication(&mut self) -> (NodeIndex, NodeIndex) {
         let conn = self.primary();
 
-        if self.matches(Token::Star) {
-            let s1 = self.nfa.add_state();
-            let s2 = self.nfa.add_state();
+        match self.peek() {
+            Token::Star => {
+                self.advance();
 
-            self.nfa.add_e_transition(s1, conn.0);
-            self.nfa.add_e_transition(conn.1, s2);
-            self.nfa.add_e_transition(conn.1, conn.0);
-            self.nfa.add_e_transition(s1, s2);
+                let s1 = self.nfa.add_state();
+                let s2 = self.nfa.add_state();
 
-            return (s1, s2);
-        }
+                self.nfa.add_e_transition(s1, conn.0);
+                self.nfa.add_e_transition(conn.1, s2);
+                self.nfa.add_e_transition(conn.1, conn.0);
+                self.nfa.add_e_transition(s1, s2);
 
-        if self.matches(Token::QuestionMark) {
-            let s1 = self.nfa.add_state();
-            let s2 = self.nfa.add_state();
+                return (s1, s2);
+            }
+            Token::QuestionMark => {
+                self.advance();
 
-            self.nfa.add_e_transition(s1, s2);
-            self.nfa.add_e_transition(s1, conn.0);
-            self.nfa.add_e_transition(conn.1, s2);
+                let s1 = self.nfa.add_state();
+                let s2 = self.nfa.add_state();
 
-            return (s1, s2);
-        }
+                self.nfa.add_e_transition(s1, s2);
+                self.nfa.add_e_transition(s1, conn.0);
+                self.nfa.add_e_transition(conn.1, s2);
 
-        if self.matches(Token::Plus) {
-            let conn2 = self.nfa.clone_subgraph(conn.0, conn.1);
+                return (s1, s2);
+            }
+            Token::Plus => {
+                self.advance();
 
-            let s1 = self.nfa.add_state();
-            let s2 = self.nfa.add_state();
+                let conn2 = self.nfa.clone_subgraph(conn.0, conn.1);
 
-            self.nfa.add_e_transition(conn.1, s1);
-            self.nfa.add_e_transition(s1, conn2.0);
-            self.nfa.add_e_transition(conn2.1, s2);
-            self.nfa.add_e_transition(conn2.1, conn2.0);
-            self.nfa.add_e_transition(s1, s2);
+                let s1 = self.nfa.add_state();
+                let s2 = self.nfa.add_state();
 
-            return (conn.0, s2);
-        }
+                self.nfa.add_e_transition(conn.1, s1);
+                self.nfa.add_e_transition(s1, conn2.0);
+                self.nfa.add_e_transition(conn2.1, s2);
+                self.nfa.add_e_transition(conn2.1, conn2.0);
+                self.nfa.add_e_transition(s1, s2);
+
+                return (conn.0, s2);
+            },
+            Token::Repeat(n) => {
+                self.advance();
+
+                let mut connector = conn.1;
+
+                for _ in 0..n-1 {
+                    let new_conn = self.nfa.clone_subgraph(conn.0, conn.1);
+
+                    self.nfa.add_e_transition(connector, new_conn.0);
+                    connector = new_conn.1;
+                }
+
+                return (conn.0, connector);
+            }
+            Token::RepeatRange(Some(a), Some(b)) => {
+                todo!()
+            }
+            
+            _ => {}
+        };
 
         conn
     }

@@ -39,9 +39,9 @@ struct Args {
 fn main() {
     let args = Args::parse();
 
-    let input = args.input;
+    let input: Vec<char> = args.input.chars().collect();
 
-    let mut scanner = Scanner::new(input.chars());
+    let mut scanner = Scanner::new(&input);
     let parser = Parser::new(scanner.scan_tokens());
 
     let nfa = parser.parse();

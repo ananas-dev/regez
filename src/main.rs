@@ -1,5 +1,7 @@
-use parser::Parser;
+use clap::{Arg, Parser as ClapParser};
+
 use scanner::Scanner;
+use parser::Parser;
 
 use std::process::{Command, Stdio};
 use std::io::Write;
@@ -25,16 +27,34 @@ fn render_graph(out_file: &str, content: &str) {
     process.wait().expect("failed to wait for end of process");
 }
 
+#[derive(ClapParser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    input: String,
+
+    #[arg(short, long)]
+    debug: bool,
+}
+
 fn main() {
-    let input = "[a-zA-Z0-9]+@[a-zA-Z0-9]+[.][a-z]+";
+    let args = Args::parse();
+
+    let input = args.input;
+
     let mut scanner = Scanner::new(input.chars());
     let parser = Parser::new(scanner.scan_tokens());
 
     let nfa = parser.parse();
-    render_graph("stage1.png", &nfa.to_dot().unwrap());
+
+    if args.debug {
+        render_graph("stage1.png", &nfa.to_dot().unwrap());
+    }
 
     let dfa = nfa.reduce_to_dfa();
-    render_graph("stage2.png", &dfa.to_dot().unwrap());
+
+    if args.debug {
+        render_graph("stage2.png", &dfa.to_dot().unwrap());
+    }
 
     println!("{}", dfa.compile().unwrap());
 }

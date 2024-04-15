@@ -185,8 +185,9 @@ impl Nfa {
                 if *edge.weight() == Transition::Empty {
                     let m = edge.source();
                     // Backpropagate
-                    res.get_mut(&m).unwrap().union(&t);
-                    work_list.insert(m.index());
+                    if work_list.insert(m.index()) {
+                        res.get_mut(&m).unwrap().union(&t);
+                    }
                 }
             }
         }

@@ -2,7 +2,8 @@ use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::{
     collections::{btree_map::Range, HashSet, VecDeque},
     fmt::{write, Debug, Display, Error, Write},
-    os::linux::raw::stat, slice::Windows,
+    os::linux::raw::stat,
+    slice::Windows,
 };
 
 use petgraph::{
@@ -192,10 +193,16 @@ impl Nfa {
                     .filter(|edge| *edge.weight() != Transition::Empty)
                 {
                     if !mapping.contains_key(edge.weight()) {
-                        mapping.insert(edge.weight().clone(), BitSet::empty(self.graph.node_count()));
+                        mapping.insert(
+                            edge.weight().clone(),
+                            BitSet::empty(self.graph.node_count()),
+                        );
                     }
 
-                    mapping.get_mut(edge.weight()).unwrap().union_inplace(e_closure.get_mut(&edge.target()).unwrap());
+                    mapping
+                        .get_mut(edge.weight())
+                        .unwrap()
+                        .union_inplace(e_closure.get_mut(&edge.target()).unwrap());
                 }
             }
 
@@ -211,7 +218,6 @@ impl Nfa {
                     }
 
                     work_list.push_back(t.clone());
-
                 }
 
                 if let Some(q_index) = node_map.get(&q) {
@@ -294,13 +300,20 @@ impl Nfa {
             }
         }
 
+        eprintln!(
+            "{:?}",
+            T.iter()
+                .map(|s| s.iter().collect::<Vec<usize>>())
+                .collect::<Vec<Vec<usize>>>()
+        );
+
         let mut mapping = FxHashMap::default();
 
         for new_state in T.iter() {
             let state_id = res.add_state();
             mapping.insert(new_state.clone(), state_id);
 
-            for state in new_state.iter() {
+            for state in new_state.iter().take(1) {
                 let state = NodeIndex::new(state);
 
                 if state == self.start {
@@ -349,20 +362,37 @@ impl Nfa {
             }
         }
 
+        dbg!(res.start);
+
         res
     }
 
     fn split(&self, s: &BitSet<NodeIndex>) -> (BitSet<NodeIndex>, BitSet<NodeIndex>) {
         let mut alphabet = FxHashSet::default();
+        let mut legal_alphabet = FxHashSet::default();
         let mut set_1 = s.clone();
         let mut set_2: BitSet<NodeIndex> = BitSet::empty(set_1.universe_len);
 
-        for sample in s.iter().take(1) {
+        for sample in s.iter() {
             let node_index = NodeIndex::new(sample);
             for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
                 alphabet.insert(edge.weight().clone());
             }
         }
+
+        legal_alphabet = alphabet.clone();
+
+        eprintln!(
+            "alphabet: {:?}",
+            &alphabet
+                .iter()
+                .map(|x| if let Transition::Range(a, b) = x {
+                    (*a as char, *b as char)
+                } else {
+                    panic!()
+                })
+                .collect::<Vec<_>>()
+        );
 
         for c in alphabet.iter() {
             let mut should_return = false;
@@ -378,17 +408,32 @@ impl Nfa {
                         set_2.insert(index);
                         set_1.remove(index);
                         should_return = true;
+                        legal_alphabet.clear();
+                        for sample in set_1.iter() {
+                            let node_index = NodeIndex::new(sample);
+                            for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
+                                legal_alphabet.insert(edge.weight().clone());
+                            }
+                        }
                     }
                 }
 
                 if self
                     .graph
                     .edges_directed(node_index, Direction::Outgoing)
-                    .any(|t| !alphabet.contains(t.weight()))
+                    .any(|t| !legal_alphabet.contains(t.weight()))
                 {
                     set_2.insert(index);
                     set_1.remove(index);
                     should_return = true;
+
+                    legal_alphabet.clear();
+                    for sample in set_1.iter() {
+                        let node_index = NodeIndex::new(sample);
+                        for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
+                            legal_alphabet.insert(edge.weight().clone());
+                        }
+                    }
                 }
             }
 
@@ -396,9 +441,6 @@ impl Nfa {
                 break;
             }
         }
-
-        // dbg!(set_1.iter().collect::<Vec<usize>>());
-        // dbg!(set_2.iter().collect::<Vec<usize>>());
 
         (set_1, set_2)
     }

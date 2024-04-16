@@ -288,47 +288,50 @@ impl Nfa {
             }
         }
 
-        dbg!(T.len());
-
         let mut mapping = FxHashMap::default();
 
         for new_state in T.iter() {
             let state_id = res.add_state();
             mapping.insert(new_state.clone(), state_id);
 
-            let sample = NodeIndex::new(new_state.iter().nth(0).unwrap());
+            for state in new_state.iter() {
+                let state = NodeIndex::new(state);
 
-            if self.graph[sample] == State::Accepting {
-                res.make_accepting(state_id);
+                if state == self.start {
+                    res.set_start(state_id);
+                }
+
+                if self.graph[state] == State::Accepting {
+                    res.make_accepting(state_id);
+                }
             }
         }
 
         for new_state in T.iter() {
-            eprintln!("{:b}", new_state.inner[0]);
-            dbg!(new_state.iter().collect::<Vec<usize>>());
             let mut classes = FxHashMap::default();
 
-            let sample = NodeIndex::new(new_state.iter().nth(0).unwrap());
+            for state in new_state.iter() {
+                let state = NodeIndex::new(state);
+                for edge in self.graph.edges_directed(state, Direction::Outgoing) {
+                    let target_state = T
+                        .iter()
+                        .find(|s| s.contains(edge.target().index()))
+                        .unwrap();
 
-            for edge in self.graph.edges_directed(sample, Direction::Outgoing) {
-                let target_state = T
-                    .iter()
-                    .find(|s| s.contains(edge.target().index()))
-                    .unwrap();
+                    match edge.weight() {
+                        Transition::Range(a, b) => {
+                            let new_edge = *mapping.get(target_state).unwrap();
 
-                match edge.weight() {
-                    Transition::Range(a, b) => {
-                        let new_edge = *mapping.get(target_state).unwrap();
+                            if !classes.contains_key(&new_edge) {
+                                classes.insert(new_edge, Vec::new());
+                            }
 
-                        if !classes.contains_key(&new_edge) {
-                            classes.insert(new_edge, Vec::new());
+                            let vec = classes.get_mut(&new_edge).unwrap();
+                            vec.push((*a, *b));
                         }
-
-                        let vec = classes.get_mut(&new_edge).unwrap();
-                        vec.push((*a, *b));
-                    }
-                    _ => todo!(),
-                };
+                        _ => todo!(),
+                    };
+                }
             }
 
             for (node, edge) in classes {
@@ -355,20 +358,10 @@ impl Nfa {
             }
         }
 
-        eprintln!("-- ALPHABET --");
-        for c in &alphabet {
-            if let Transition::Range(a, b) = c {
-                eprintln!("ALPHABET ENTRY {}-{}", *a as char, *b as char);
-            }
-        }
-
         for c in alphabet.iter() {
-            let should_return = false;
-
+            let mut should_return = false;
             for index in s.iter() {
                 let node_index = NodeIndex::new(index);
-
-                let mut edge_counter = 0;
 
                 if let Some(edge) = self
                     .graph
@@ -376,40 +369,25 @@ impl Nfa {
                     .find(|t| *t.weight() == *c)
                 {
                     if !set_1.contains(edge.target().index()) {
-                        eprintln!("SET 1 when {}", edge.target().index());
-                        dbg!(set_1.iter().collect::<Vec<usize>>());
-                        eprintln!("GOT HERE 2");
                         set_2.insert(index);
                         set_1.remove(index);
-                        break;
+                        should_return = true;
                     }
                 }
 
-                for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
-                    edge_counter += 1;
-
-                    dbg!(edge.weight());
-
-                    if !alphabet.contains(edge.weight()) {
-                        eprintln!("GOT HERE 1");
-                        // eprintln!("BEFORE INSERTION/DELETION");
-                        // dbg!(set_1.iter().collect::<Vec<usize>>());
-                        // dbg!(set_2.iter().collect::<Vec<usize>>());
-
-                        set_2.insert(index);
-                        set_1.remove(index);
-
-                        // eprintln!("AFTER INSERTION/DELETION");
-                        // dbg!(set_1.iter().collect::<Vec<usize>>());
-                        // dbg!(set_2.iter().collect::<Vec<usize>>());
-                        break;
-                    }
-                }
-
-                if edge_counter != alphabet.len() {
+                if self
+                    .graph
+                    .edges_directed(node_index, Direction::Outgoing)
+                    .any(|t| !alphabet.contains(t.weight()))
+                {
                     set_2.insert(index);
                     set_1.remove(index);
+                    should_return = true;
                 }
+            }
+
+            if should_return {
+                break;
             }
         }
 
@@ -448,16 +426,29 @@ impl Nfa {
         let mut res = String::new();
         match t {
             Transition::Range(a, b) if *a == 0 && *b == 127 => (),
-            Transition::Range(a, b) if *a == *b => {
-                write!(&mut res, "if (c == '{}') ", char::from(*a))?
-            }
+            Transition::Range(a, b) if *a == *b => write!(&mut res, "if (c == '{}') ", *a as char)?,
             Transition::Range(a, b) => write!(
                 &mut res,
                 "if (c >= '{}' && c <= '{}') ",
-                char::from(*a),
-                char::from(*b)
+                *a as char, *b as char,
             )?,
-            Transition::RangeList(l) => write!(&mut res, "// todo :)")?,
+            Transition::RangeList(l) => {
+                write!(&mut res, "if (")?;
+
+                for (index, &(a, b)) in l.iter().enumerate() {
+                    if a == b {
+                        write!(&mut res, "(c == '{}')", a as char)?;
+                    } else if !(a == 0 && b == 127) {
+                        write!(&mut res, "(c >= '{}' && c <= '{}')", a as char, b as char)?;
+                    }
+
+                    if index < l.len() - 1 {
+                        write!(&mut res, " || ")?;
+                    }
+                }
+
+                write!(&mut res, ") ")?;
+            }
             Transition::Empty => panic!(),
         }
 

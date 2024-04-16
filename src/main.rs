@@ -56,5 +56,11 @@ fn main() {
         render_graph("stage2.png", &dfa.to_dot().unwrap());
     }
 
-    println!("{}", dfa.compile().unwrap());
+    let minimized_dfa = dfa.minimize();
+
+    if args.debug {
+        render_graph("stage3.png", &minimized_dfa.to_dot().unwrap());
+    }
+
+    println!("{}", minimized_dfa.compile().unwrap());
 }

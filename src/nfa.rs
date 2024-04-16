@@ -5,7 +5,6 @@ use std::{
 };
 
 use petgraph::{
-    adj::List,
     graph::{DiGraph, Node, NodeIndex},
     visit::{EdgeRef, IntoNodeReferences, NodeRef},
     Direction,
@@ -14,14 +13,9 @@ use petgraph::{
 use crate::bitset::BitSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum CharacterClass {
-    Range { from: char, to: char },
-    Char(char),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Transition {
     Range(u8, u8),
+    RangeList(Vec<(u8, u8)>),
     Empty,
 }
 
@@ -31,28 +25,35 @@ pub enum State {
     NotAccepting,
 }
 
-// pub enum CharS
-
-// pub enum CharClass {
-//     Any,
-//     Char(char),
-//     Not(Box<CharSet>),
-//     Range(char, char),
-// }
-
-// pub fn charset_reduce(Vec::Cha) {
-
-// }
-
-impl Display for CharacterClass {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CharacterClass::Range { from, to } => write!(f, "{from}-{to}")?,
-            CharacterClass::Char(c) => f.write_char(*c)?,
-        }
-
-        Ok(())
+// FIXME move elsewhere
+fn merge_ranges(mut ranges: Vec<(u8, u8)>) -> Vec<(u8, u8)> {
+    if ranges.is_empty() {
+        return ranges;
     }
+
+    // Sort ranges by the starting value
+    ranges.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut merged_ranges = vec![];
+
+    // Start with the first range
+    let mut current_range = ranges[0].clone();
+
+    for next_range in ranges.into_iter().skip(1) {
+        if next_range.0 <= current_range.1 {
+            // If the next range overlaps or is consecutive, merge it
+            current_range.1 = current_range.1.max(next_range.1);
+        } else {
+            // If the next range does not overlap, push the current range and move to the next
+            merged_ranges.push(current_range);
+            current_range = next_range;
+        }
+    }
+
+    // Push the last merged range
+    merged_ranges.push(current_range);
+
+    merged_ranges
 }
 
 impl Display for Transition {
@@ -61,6 +62,15 @@ impl Display for Transition {
             Transition::Range(a, b) if *a == 0 && *b == 127 => write!(f, ".")?,
             Transition::Range(a, b) if *a == *b => write!(f, "'{}'", *a as char)?,
             Transition::Range(a, b) => write!(f, "[{}-{}]", *a as char, *b as char)?,
+            Transition::RangeList(l) => {
+                write!(f, "[")?;
+
+                for (a, b) in l.iter() {
+                    write!(f, "{}-{}", *a as char, *b as char)?;
+                }
+
+                write!(f, "]")?;
+            }
             Transition::Empty => f.write_char('ε')?,
         }
 
@@ -243,7 +253,7 @@ impl Nfa {
         res
     }
 
-    /*     pub fn minimize(&self) -> Nfa {
+    pub fn minimize(&self) -> Nfa {
         let mut res = Nfa::new();
 
         let mut T = FxHashSet::default();
@@ -277,6 +287,8 @@ impl Nfa {
             }
         }
 
+        dbg!(T.len());
+
         let mut mapping = FxHashMap::default();
 
         for new_state in T.iter() {
@@ -284,6 +296,8 @@ impl Nfa {
         }
 
         for new_state in T.iter() {
+            eprintln!("{:b}", new_state.inner[0]);
+            dbg!(new_state.iter().collect::<Vec<usize>>());
             let mut classes = FxHashMap::default();
 
             let sample = NodeIndex::new(new_state.iter().nth(0).unwrap());
@@ -295,8 +309,7 @@ impl Nfa {
                     .unwrap();
 
                 match edge.weight() {
-                    Transition::Char(c) => {
-
+                    Transition::Range(a, b) => {
                         let new_edge = *mapping.get(new_state).unwrap();
 
                         if !classes.contains_key(&new_edge) {
@@ -304,27 +317,25 @@ impl Nfa {
                         }
 
                         let vec = classes.get_mut(&new_edge).unwrap();
-                        vec.push(CharacterClass::Char(*c));
-
+                        vec.push((*a, *b));
                     }
                     _ => todo!(),
                 };
-
             }
 
             for (node, edge) in classes {
                 res.graph.update_edge(
                     *mapping.get(new_state).unwrap(),
                     node,
-                    todo!(),
+                    Transition::RangeList(merge_ranges(edge)),
                 );
             }
         }
 
         res
-    } */
+    }
 
-/*     fn split(&self, s: &BitSet<NodeIndex>) -> (BitSet<NodeIndex>, BitSet<NodeIndex>) {
+    fn split(&self, s: &BitSet<NodeIndex>) -> (BitSet<NodeIndex>, BitSet<NodeIndex>) {
         let mut alphabet = FxHashSet::default();
         let mut set_1 = s.clone();
         let mut set_2: BitSet<NodeIndex> = BitSet::empty(set_1.universe_len);
@@ -339,24 +350,34 @@ impl Nfa {
 
         for index in set_1.iter() {
             let node_index = NodeIndex::new(index);
-            for c in alphabet.iter() {
-                if let Transition::Char(c) = c {
-                    for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
-                        if !set_1.contains(edge.target().index()) {
-                            set_2.insert(index);
-                            continue;
-                        }
-                    }
-                } else {
-                    todo!()
+
+            let mut edge_counter = 0;
+
+            for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
+                edge_counter += 1;
+
+                if !alphabet.contains(edge.weight()) {
+                    set_2.insert(index);
+                    break;
                 }
+
+                if !set_1.contains(edge.target().index()) {
+                    eprintln!("STEP 1 {:b}", set_2.inner[0]);
+                    set_2.insert(index);
+                    eprintln!("STEP 2 {:b}", set_1.inner[0]);
+                    break;
+                }
+            }
+
+            if edge_counter < alphabet.len() {
+                set_2.insert(index);
             }
         }
 
         set_1.exclusion_inplace(&set_2);
 
         (set_1, set_2)
-    } */
+    }
 
     pub fn to_dot(&self) -> Result<String, Error> {
         let mut s = String::new();
@@ -390,8 +411,16 @@ impl Nfa {
         let mut res = String::new();
         match t {
             Transition::Range(a, b) if *a == 0 && *b == 127 => (),
-            Transition::Range(a, b) if *a == *b => write!(&mut res, "if (c == '{}') ", char::from(*a))?,
-            Transition::Range(a, b) => write!(&mut res, "if (c >= '{}' && c <= '{}') ", char::from(*a), char::from(*b))?,
+            Transition::Range(a, b) if *a == *b => {
+                write!(&mut res, "if (c == '{}') ", char::from(*a))?
+            }
+            Transition::Range(a, b) => write!(
+                &mut res,
+                "if (c >= '{}' && c <= '{}') ",
+                char::from(*a),
+                char::from(*b)
+            )?,
+            Transition::RangeList(l) => write!(&mut res, "// todo :)")?,
             Transition::Empty => panic!(),
         }
 

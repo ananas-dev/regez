@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 #[derive(Clone, Hash)]
 pub struct BitSet<T> {
-    inner: Vec<u64>,
+    pub inner: Vec<u64>,
     pub universe_len: usize,
     mark: PhantomData<T>,
 }

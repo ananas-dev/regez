@@ -1,7 +1,7 @@
 use petgraph::graph::NodeIndex;
 
 use crate::{
-    nfa::{CharacterClass, Nfa, Transition},
+    nfa::{Nfa, Transition},
     scanner::Token,
 };
 

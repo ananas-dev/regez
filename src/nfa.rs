@@ -163,8 +163,7 @@ impl Nfa {
         let mut e_closure = self.e_closure();
         let mut dfa = Nfa::new();
         let mut node_map: FxHashMap<BitSet<NodeIndex>, NodeIndex> = FxHashMap::default();
-        let mut q0 = e_closure.get(&self.start).unwrap().clone();
-        q0.remove(self.start.index());
+        let q0 = e_closure.get(&self.start).unwrap().clone();
 
         {
             let q0_index = dfa.add_state();

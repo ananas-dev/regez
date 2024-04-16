@@ -1,24 +1,22 @@
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::{
     collections::{HashSet, VecDeque},
     fmt::{write, Debug, Display, Error, Write},
 };
 
 use petgraph::{
-    graph::{DiGraph, Node, NodeIndex},
-    visit::{EdgeRef, IntoNodeReferences, NodeRef},
-    Direction,
+    adj::List, graph::{DiGraph, Node, NodeIndex}, visit::{EdgeRef, IntoNodeReferences, NodeRef}, Direction
 };
 
 use crate::bitset::BitSet;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CharacterClass {
     Range { from: char, to: char },
     Char(char),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Transition {
     Any,
     Char(char),
@@ -34,6 +32,19 @@ pub enum State {
     Accepting,
     NotAccepting,
 }
+
+// pub enum CharS
+
+// pub enum CharClass {
+//     Any,
+//     Char(char),
+//     Not(Box<CharSet>),
+//     Range(char, char),
+// }
+
+// pub fn charset_reduce(Vec::Cha) {
+
+// }
 
 impl Display for CharacterClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -170,9 +181,9 @@ impl Nfa {
             }
         }
 
-        let mut work_list = Vec::from([q0.clone()]);
+        let mut work_list = VecDeque::from([q0.clone()]);
 
-        while let Some(q) = work_list.pop() {
+        while let Some(q) = work_list.pop_front() {
             // FIXME inefficient
             for el in q.iter() {
                 let mut t = BitSet::empty(self.graph.node_count());
@@ -182,7 +193,7 @@ impl Nfa {
                     .edges_directed(NodeIndex::new(el), Direction::Outgoing)
                 {
                     if *edge.weight() != Transition::Empty {
-                        t.union(e_closure.get(&edge.target()).unwrap());
+                        t.union_inplace(e_closure.get(&edge.target()).unwrap());
                     }
 
                     if !t.is_empty() && !node_map.contains_key(&t) {
@@ -195,7 +206,7 @@ impl Nfa {
                             dfa.make_accepting(node_idx);
                         }
 
-                        work_list.push(t.clone());
+                        work_list.push_back(t.clone());
                     }
 
                     if let Some(q_index) = node_map.get(&q) {
@@ -210,7 +221,7 @@ impl Nfa {
         dfa
     }
 
-    pub fn e_closure(&self) -> FxHashMap<NodeIndex, BitSet<NodeIndex>> {
+    fn e_closure(&self) -> FxHashMap<NodeIndex, BitSet<NodeIndex>> {
         let mut res: FxHashMap<NodeIndex, BitSet<NodeIndex>> = FxHashMap::default();
 
         for n in self.graph.node_indices() {
@@ -237,12 +248,127 @@ impl Nfa {
                     let m = edge.source();
                     // Backpropagate
                     work_list.insert(m.index());
-                    res.get_mut(&m).unwrap().union(&t);
+                    res.get_mut(&m).unwrap().union_inplace(&t);
                 }
             }
         }
 
         res
+    }
+
+    pub fn minimize(&self) -> Nfa {
+        let mut res = Nfa::new();
+
+        let mut T = FxHashSet::default();
+        let mut P = FxHashSet::default();
+
+        let mut accepting_set: BitSet<NodeIndex> = BitSet::empty(self.graph.node_count());
+
+        for (i, s) in self.graph.node_references() {
+            if *s == State::Accepting {
+                accepting_set.insert(i.index());
+            }
+        }
+
+        let non_accepting_set = accepting_set.complement();
+
+        T.insert(accepting_set);
+        T.insert(non_accepting_set);
+
+        while T != P {
+            P = T;
+            T = FxHashSet::default();
+            for p in P.iter() {
+                let splited = self.split(p);
+                if !splited.0.is_empty() {
+                    T.insert(splited.0);
+                }
+
+                if !splited.1.is_empty() {
+                    T.insert(splited.1);
+                }
+            }
+        }
+
+        let mut mapping = FxHashMap::default();
+
+        for new_state in T.iter() {
+            mapping.insert(new_state.clone(), res.add_state());
+        }
+
+        for new_state in T.iter() {
+            let mut classes = FxHashMap::default();
+
+            let sample = NodeIndex::new(new_state.iter().nth(0).unwrap());
+
+            for edge in self.graph.edges_directed(sample, Direction::Outgoing) {
+                let target_state = T
+                    .iter()
+                    .find(|s| s.contains(edge.target().index()))
+                    .unwrap();
+
+                match edge.weight() {
+                    Transition::Char(c) => {
+
+                        let new_edge = *mapping.get(new_state).unwrap();
+
+                        if !classes.contains_key(&new_edge) {
+                            classes.insert(new_edge, Vec::new());
+                        }
+
+                        let vec = classes.get_mut(&new_edge).unwrap();
+                        vec.push(CharacterClass::Char(*c));
+
+                    }
+                    _ => todo!(),
+                };
+
+            }
+
+            for (node, edge) in classes {
+                res.graph.update_edge(
+                    *mapping.get(new_state).unwrap(),
+                    node,
+                    todo!(),
+                );
+            }
+        }
+
+        res
+    }
+
+    fn split(&self, s: &BitSet<NodeIndex>) -> (BitSet<NodeIndex>, BitSet<NodeIndex>) {
+        let mut alphabet = FxHashSet::default();
+        let mut set_1 = s.clone();
+        let mut set_2: BitSet<NodeIndex> = BitSet::empty(set_1.universe_len);
+
+        for index in s.iter() {
+            let node_index = NodeIndex::new(index);
+
+            for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
+                alphabet.insert(edge.weight().clone());
+            }
+        }
+
+        for index in set_1.iter() {
+            let node_index = NodeIndex::new(index);
+            for c in alphabet.iter() {
+                if let Transition::Char(c) = c {
+                    for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
+                        if !set_1.contains(edge.target().index()) {
+                            set_2.insert(index);
+                            continue;
+                        }
+                    }
+                } else {
+                    todo!()
+                }
+            }
+        }
+
+        set_1.exclusion_inplace(&set_2);
+
+        (set_1, set_2)
     }
 
     pub fn to_dot(&self) -> Result<String, Error> {
@@ -293,14 +419,14 @@ impl Nfa {
                             } else {
                                 write!(&mut res, "c < '{from}' || c > '{to}'")?
                             }
-                        },
+                        }
                         CharacterClass::Char(c) => {
                             if *inclusive {
                                 write!(&mut res, "c == '{c}'")?
                             } else {
                                 write!(&mut res, "c != '{c}'")?
                             }
-                        },
+                        }
                     }
 
                     if content.len() > 1 {
@@ -316,7 +442,7 @@ impl Nfa {
                     }
                 }
                 write!(&mut res, ") ")?
-            },
+            }
             Transition::Empty => panic!(),
         }
 
@@ -362,7 +488,12 @@ impl Nfa {
                     .unwrap()
                     .weight();
 
-                write!(&mut s, "\t{}goto s{};\n", self.c_condition(&transition)?, neighbor.index())?;
+                write!(
+                    &mut s,
+                    "\t{}goto s{};\n",
+                    self.c_condition(&transition)?,
+                    neighbor.index()
+                )?;
             }
             s.push_str("\tgoto end;\n");
         }

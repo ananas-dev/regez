@@ -1,7 +1,4 @@
-use std::collections::HashSet;
-
 use petgraph::graph::NodeIndex;
-use rustc_hash::FxHashSet;
 
 use crate::{
     nfa::{CharacterClass, Nfa, Transition},
@@ -9,7 +6,7 @@ use crate::{
 };
 
 // CFG
-// Expr ::= Concat `|` Concat
+// Expr ::= Concat (`|` Concat)* | Concat
 // Concat ::= Duplication*
 // Duplication ::= Grouping`*` | Grouping`+` | Grouping`?` | Grouping`{`(0-9)*`}` | Grouping
 // Grouping ::= `(` Expr `)` | BracketExpr
@@ -39,9 +36,9 @@ impl Parser {
     }
 
     fn expr(&mut self) -> (NodeIndex, NodeIndex) {
-        let conn1 = self.concat();
+        let mut conn1 = self.concat();
 
-        if self.matches(Token::Union) {
+        while self.matches(Token::Union) {
             let conn2 = self.concat();
 
             let s1 = self.nfa.add_state();
@@ -52,7 +49,7 @@ impl Parser {
             self.nfa.add_e_transition(conn1.1, s2);
             self.nfa.add_e_transition(conn2.1, s2);
 
-            return (s1, s2);
+            conn1 = (s1, s2);
         }
 
         conn1
@@ -148,6 +145,7 @@ impl Parser {
                 if self.matches(Token::RightParen) {
                     conn
                 } else {
+                    dbg!(self.peek());
                     panic!("Unbalanced paren")
                 }
             }

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 #[derive(Clone, Hash)]
 pub struct BitSet<T> {
     inner: Vec<u64>,
-    universe_len: usize,
+    pub universe_len: usize,
     mark: PhantomData<T>,
 }
 
@@ -59,6 +59,13 @@ impl<'a, T: PartialEq + Copy> BitSet<T> {
         prev
     }
 
+    pub fn remove(&mut self, index: usize) -> bool {
+        let prev = self.inner[index / 64] & 1 << (index % 64) == 0;
+        self.inner[index / 64] &= !(1 << (index % 64));
+
+        prev
+    }
+
     pub fn pop(&mut self) -> Option<usize> {
         if self.is_empty() {
             return None;
@@ -76,11 +83,26 @@ impl<'a, T: PartialEq + Copy> BitSet<T> {
         None
     }
 
-    pub fn union(&mut self, other: &BitSet<T>) {
+    pub fn union_inplace(&mut self, other: &BitSet<T>) {
         self.inner
             .iter_mut()
             .zip(other.inner.iter())
             .for_each(|(a, b)| *a |= b);
+    }
+
+    pub fn exclusion_inplace(&mut self, other: &BitSet<T>) {
+        self.inner
+            .iter_mut()
+            .zip(other.inner.iter())
+            .for_each(|(a, b)| *a &= !b);
+    }
+
+    pub fn complement(&self) -> BitSet<T> {
+        BitSet {
+            inner: self.inner.iter().map(|x| !x).collect(),
+            universe_len: self.universe_len,
+            mark: self.mark, 
+        } 
     }
 
     pub fn iter(&self) -> BitSetIterator<T> {

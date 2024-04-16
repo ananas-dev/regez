@@ -35,13 +35,17 @@ impl<'a, T: PartialEq + Copy> BitSet<T> {
             }
         }
 
-        BitSet { universe_len, inner, mark: PhantomData }
+        BitSet {
+            universe_len,
+            inner,
+            mark: PhantomData,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
         for w in self.inner.iter() {
             if *w != 0 {
-                return false
+                return false;
             }
         }
 
@@ -98,11 +102,28 @@ impl<'a, T: PartialEq + Copy> BitSet<T> {
     }
 
     pub fn complement(&self) -> BitSet<T> {
+        let mut mask = 0;
+
+        for shift in 0..(self.universe_len % 64) {
+            mask |= 1 << shift;
+        }
+
         BitSet {
-            inner: self.inner.iter().map(|x| !x).collect(),
+            inner: self
+                .inner
+                .iter()
+                .enumerate()
+                .map(|(i, x)| {
+                    if i < self.inner.len() - 1 {
+                        !x
+                    } else {
+                        !x & mask
+                    }
+                })
+                .collect(),
             universe_len: self.universe_len,
-            mark: self.mark, 
-        } 
+            mark: self.mark,
+        }
     }
 
     pub fn iter(&self) -> BitSetIterator<T> {
@@ -134,7 +155,7 @@ impl<'a, T: Copy> Iterator for BitSetIterator<'a, T> {
         None
     }
 }
-/* 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;

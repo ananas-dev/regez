@@ -1,12 +1,13 @@
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{btree_map::Range, HashSet, VecDeque},
     fmt::{write, Debug, Display, Error, Write},
+    os::linux::raw::stat,
 };
 
 use petgraph::{
     graph::{DiGraph, Node, NodeIndex},
-    visit::{EdgeRef, IntoNodeReferences, NodeRef},
+    visit::{EdgeRef, IntoEdgesDirected, IntoNodeReferences, NodeRef},
     Direction,
 };
 
@@ -292,7 +293,14 @@ impl Nfa {
         let mut mapping = FxHashMap::default();
 
         for new_state in T.iter() {
-            mapping.insert(new_state.clone(), res.add_state());
+            let state_id = res.add_state();
+            mapping.insert(new_state.clone(), state_id);
+
+            let sample = NodeIndex::new(new_state.iter().nth(0).unwrap());
+
+            if self.graph[sample] == State::Accepting {
+                res.make_accepting(state_id);
+            }
         }
 
         for new_state in T.iter() {
@@ -310,7 +318,7 @@ impl Nfa {
 
                 match edge.weight() {
                     Transition::Range(a, b) => {
-                        let new_edge = *mapping.get(new_state).unwrap();
+                        let new_edge = *mapping.get(target_state).unwrap();
 
                         if !classes.contains_key(&new_edge) {
                             classes.insert(new_edge, Vec::new());
@@ -340,41 +348,70 @@ impl Nfa {
         let mut set_1 = s.clone();
         let mut set_2: BitSet<NodeIndex> = BitSet::empty(set_1.universe_len);
 
-        for index in s.iter() {
-            let node_index = NodeIndex::new(index);
-
+        for sample in s.iter().take(1) {
+            let node_index = NodeIndex::new(sample);
             for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
                 alphabet.insert(edge.weight().clone());
             }
         }
 
-        for index in set_1.iter() {
-            let node_index = NodeIndex::new(index);
-
-            let mut edge_counter = 0;
-
-            for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
-                edge_counter += 1;
-
-                if !alphabet.contains(edge.weight()) {
-                    set_2.insert(index);
-                    break;
-                }
-
-                if !set_1.contains(edge.target().index()) {
-                    eprintln!("STEP 1 {:b}", set_2.inner[0]);
-                    set_2.insert(index);
-                    eprintln!("STEP 2 {:b}", set_1.inner[0]);
-                    break;
-                }
-            }
-
-            if edge_counter < alphabet.len() {
-                set_2.insert(index);
+        eprintln!("-- ALPHABET --");
+        for c in &alphabet {
+            if let Transition::Range(a, b) = c {
+                eprintln!("ALPHABET ENTRY {}-{}", *a as char, *b as char);
             }
         }
 
-        set_1.exclusion_inplace(&set_2);
+        for c in alphabet.iter() {
+            let should_return = false;
+
+            for index in s.iter() {
+                let node_index = NodeIndex::new(index);
+
+                let mut edge_counter = 0;
+
+                if let Some(edge) = self
+                    .graph
+                    .edges_directed(node_index, Direction::Outgoing)
+                    .find(|t| *t.weight() == *c)
+                {
+                    if !set_1.contains(edge.target().index()) {
+                        eprintln!("SET 1 when {}", edge.target().index());
+                        dbg!(set_1.iter().collect::<Vec<usize>>());
+                        eprintln!("GOT HERE 2");
+                        set_2.insert(index);
+                        set_1.remove(index);
+                        break;
+                    }
+                }
+
+                for edge in self.graph.edges_directed(node_index, Direction::Outgoing) {
+                    edge_counter += 1;
+
+                    dbg!(edge.weight());
+
+                    if !alphabet.contains(edge.weight()) {
+                        eprintln!("GOT HERE 1");
+                        // eprintln!("BEFORE INSERTION/DELETION");
+                        // dbg!(set_1.iter().collect::<Vec<usize>>());
+                        // dbg!(set_2.iter().collect::<Vec<usize>>());
+
+                        set_2.insert(index);
+                        set_1.remove(index);
+
+                        // eprintln!("AFTER INSERTION/DELETION");
+                        // dbg!(set_1.iter().collect::<Vec<usize>>());
+                        // dbg!(set_2.iter().collect::<Vec<usize>>());
+                        break;
+                    }
+                }
+
+                if edge_counter != alphabet.len() {
+                    set_2.insert(index);
+                    set_1.remove(index);
+                }
+            }
+        }
 
         (set_1, set_2)
     }

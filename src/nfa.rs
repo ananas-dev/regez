@@ -2,7 +2,7 @@ use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::{
     collections::{btree_map::Range, HashSet, VecDeque},
     fmt::{write, Debug, Display, Error, Write},
-    os::linux::raw::stat,
+    os::linux::raw::stat, slice::Windows,
 };
 
 use petgraph::{
@@ -184,19 +184,23 @@ impl Nfa {
 
         while let Some(q) = work_list.pop_front() {
             // FIXME inefficient
-            let mut mapping = FxHashMap::default();
+            let mut mapping: FxHashMap<Transition, BitSet<NodeIndex>> = FxHashMap::default();
 
             for el in q.iter() {
-                let mut t = BitSet::empty(self.graph.node_count());
-
                 for edge in self
                     .graph
                     .edges_directed(NodeIndex::new(el), Direction::Outgoing)
                     .filter(|edge| *edge.weight() != Transition::Empty)
                 {
-                    t.union_inplace(e_closure.get_mut(&edge.target()).unwrap());
+                    if !mapping.contains_key(edge.weight()) {
+                        mapping.insert(edge.weight().clone(), BitSet::empty(self.graph.node_count()));
+                    }
+
+                    mapping.get_mut(edge.weight()).unwrap().union_inplace(e_closure.get_mut(&edge.target()).unwrap());
                 }
-                
+            }
+
+            for (weight, t) in mapping {
                 if !node_map.contains_key(&t) {
                     let node_idx = dfa.add_state();
                     node_map.insert(t.clone(), node_idx);
@@ -211,17 +215,9 @@ impl Nfa {
 
                 }
 
-                dbg!(t.iter().collect::<Vec<usize>>());
-
-                for edge in self
-                    .graph
-                    .edges_directed(NodeIndex::new(el), Direction::Outgoing)
-                    .filter(|edge| *edge.weight() != Transition::Empty)
-                {
-                    if let Some(q_index) = node_map.get(&q) {
-                        if let Some(t_index) = node_map.get(&t) {
-                            dfa.add_transition(*q_index, *t_index, edge.weight().clone());
-                        }
+                if let Some(q_index) = node_map.get(&q) {
+                    if let Some(t_index) = node_map.get(&t) {
+                        dfa.add_transition(*q_index, *t_index, weight);
                     }
                 }
             }

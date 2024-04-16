@@ -60,7 +60,7 @@ impl Parser {
 
     pub fn parse(mut self) -> Nfa {
         let (start, end) = self.expr();
-        self.nfa.set_start(start);
+        self.nfa.set_start(dbg!(start));
         self.nfa.make_accepting(end);
         self.nfa
     }

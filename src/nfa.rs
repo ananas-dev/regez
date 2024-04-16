@@ -160,10 +160,11 @@ impl Nfa {
     }
 
     pub fn reduce_to_dfa(&self) -> Nfa {
-        let e_closure = self.e_closure();
+        let mut e_closure = self.e_closure();
         let mut dfa = Nfa::new();
         let mut node_map: FxHashMap<BitSet<NodeIndex>, NodeIndex> = FxHashMap::default();
-        let q0 = e_closure.get(&self.start).unwrap();
+        let mut q0 = e_closure.get(&self.start).unwrap().clone();
+        q0.remove(self.start.index());
 
         {
             let q0_index = dfa.add_state();
@@ -183,30 +184,40 @@ impl Nfa {
 
         while let Some(q) = work_list.pop_front() {
             // FIXME inefficient
+            let mut mapping = FxHashMap::default();
+
             for el in q.iter() {
                 let mut t = BitSet::empty(self.graph.node_count());
 
                 for edge in self
                     .graph
                     .edges_directed(NodeIndex::new(el), Direction::Outgoing)
+                    .filter(|edge| *edge.weight() != Transition::Empty)
                 {
-                    if *edge.weight() != Transition::Empty {
-                        t.union_inplace(e_closure.get(&edge.target()).unwrap());
+                    t.union_inplace(e_closure.get_mut(&edge.target()).unwrap());
+                }
+                
+                if !node_map.contains_key(&t) {
+                    let node_idx = dfa.add_state();
+                    node_map.insert(t.clone(), node_idx);
+
+                    if t.iter()
+                        .any(|i| self.graph[NodeIndex::new(i)] == State::Accepting)
+                    {
+                        dfa.make_accepting(node_idx);
                     }
 
-                    if !t.is_empty() && !node_map.contains_key(&t) {
-                        let node_idx = dfa.add_state();
-                        node_map.insert(t.clone(), node_idx);
+                    work_list.push_back(t.clone());
 
-                        if t.iter()
-                            .any(|i| self.graph[NodeIndex::new(i)] == State::Accepting)
-                        {
-                            dfa.make_accepting(node_idx);
-                        }
+                }
 
-                        work_list.push_back(t.clone());
-                    }
+                dbg!(t.iter().collect::<Vec<usize>>());
 
+                for edge in self
+                    .graph
+                    .edges_directed(NodeIndex::new(el), Direction::Outgoing)
+                    .filter(|edge| *edge.weight() != Transition::Empty)
+                {
                     if let Some(q_index) = node_map.get(&q) {
                         if let Some(t_index) = node_map.get(&t) {
                             dfa.add_transition(*q_index, *t_index, edge.weight().clone());
@@ -250,6 +261,11 @@ impl Nfa {
                 }
             }
         }
+
+        dbg!(res
+            .iter()
+            .map(|(k, v)| (k.index(), v.iter().collect::<Vec<usize>>()))
+            .collect::<Vec<_>>());
 
         res
     }
@@ -390,6 +406,9 @@ impl Nfa {
                 break;
             }
         }
+
+        // dbg!(set_1.iter().collect::<Vec<usize>>());
+        // dbg!(set_2.iter().collect::<Vec<usize>>());
 
         (set_1, set_2)
     }

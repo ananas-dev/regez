@@ -1,5 +1,3 @@
-use std::{iter::Peekable, str::Chars};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Token {
     Char(char),

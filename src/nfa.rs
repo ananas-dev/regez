@@ -5,7 +5,10 @@ use std::{
 };
 
 use petgraph::{
-    adj::List, graph::{DiGraph, Node, NodeIndex}, visit::{EdgeRef, IntoNodeReferences, NodeRef}, Direction
+    adj::List,
+    graph::{DiGraph, Node, NodeIndex},
+    visit::{EdgeRef, IntoNodeReferences, NodeRef},
+    Direction,
 };
 
 use crate::bitset::BitSet;
@@ -18,12 +21,7 @@ pub enum CharacterClass {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Transition {
-    Any,
-    Char(char),
-    ClassList {
-        content: Vec<CharacterClass>,
-        inclusive: bool,
-    },
+    Range(u8, u8),
     Empty,
 }
 
@@ -60,20 +58,9 @@ impl Display for CharacterClass {
 impl Display for Transition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Transition::ClassList { content, inclusive } => {
-                f.write_char('[')?;
-                if !*inclusive {
-                    f.write_char('^')?;
-                }
-
-                for class in content {
-                    std::fmt::Display::fmt(class, f)?;
-                }
-
-                f.write_char(']')?;
-            }
-            Transition::Char(c) => write!(f, "'{}'", *c)?,
-            Transition::Any => f.write_char('.')?,
+            Transition::Range(a, b) if *a == 0 && *b == 127 => write!(f, ".")?,
+            Transition::Range(a, b) if *a == *b => write!(f, "'{}'", *a as char)?,
+            Transition::Range(a, b) => write!(f, "[{}-{}]", *a as char, *b as char)?,
             Transition::Empty => f.write_char('ε')?,
         }
 
@@ -256,7 +243,7 @@ impl Nfa {
         res
     }
 
-    pub fn minimize(&self) -> Nfa {
+    /*     pub fn minimize(&self) -> Nfa {
         let mut res = Nfa::new();
 
         let mut T = FxHashSet::default();
@@ -335,9 +322,9 @@ impl Nfa {
         }
 
         res
-    }
+    } */
 
-    fn split(&self, s: &BitSet<NodeIndex>) -> (BitSet<NodeIndex>, BitSet<NodeIndex>) {
+/*     fn split(&self, s: &BitSet<NodeIndex>) -> (BitSet<NodeIndex>, BitSet<NodeIndex>) {
         let mut alphabet = FxHashSet::default();
         let mut set_1 = s.clone();
         let mut set_2: BitSet<NodeIndex> = BitSet::empty(set_1.universe_len);
@@ -369,7 +356,7 @@ impl Nfa {
         set_1.exclusion_inplace(&set_2);
 
         (set_1, set_2)
-    }
+    } */
 
     pub fn to_dot(&self) -> Result<String, Error> {
         let mut s = String::new();
@@ -387,7 +374,7 @@ impl Nfa {
         for edge in self.graph.edge_references() {
             write!(
                 &mut s,
-                "\t\"{}\" -> \"{}\" [label = \"{}\"]\n",
+                "\t\"{}\" -> \"{}\" [label = \"{}\"];\n",
                 edge.source().index(),
                 edge.target().index(),
                 edge.weight(),
@@ -402,47 +389,9 @@ impl Nfa {
     fn c_condition(&self, t: &Transition) -> Result<String, Error> {
         let mut res = String::new();
         match t {
-            Transition::Any => (),
-            Transition::Char(c) => write!(&mut res, "if (c == '{c}') ")?,
-            Transition::ClassList { content, inclusive } => {
-                write!(&mut res, "if (")?;
-
-                for (index, class) in content.iter().enumerate() {
-                    if content.len() > 1 {
-                        res.push('(')
-                    }
-
-                    match class {
-                        CharacterClass::Range { from, to } => {
-                            if *inclusive {
-                                write!(&mut res, "c >= '{from}' && c <= '{to}'")?
-                            } else {
-                                write!(&mut res, "c < '{from}' || c > '{to}'")?
-                            }
-                        }
-                        CharacterClass::Char(c) => {
-                            if *inclusive {
-                                write!(&mut res, "c == '{c}'")?
-                            } else {
-                                write!(&mut res, "c != '{c}'")?
-                            }
-                        }
-                    }
-
-                    if content.len() > 1 {
-                        res.push(')')
-                    }
-
-                    if index < content.len() - 1 {
-                        if *inclusive {
-                            write!(&mut res, " || ")?;
-                        } else {
-                            write!(&mut res, " && ")?;
-                        }
-                    }
-                }
-                write!(&mut res, ") ")?
-            }
+            Transition::Range(a, b) if *a == 0 && *b == 127 => (),
+            Transition::Range(a, b) if *a == *b => write!(&mut res, "if (c == '{}') ", char::from(*a))?,
+            Transition::Range(a, b) => write!(&mut res, "if (c >= '{}' && c <= '{}') ", char::from(*a), char::from(*b))?,
             Transition::Empty => panic!(),
         }
 

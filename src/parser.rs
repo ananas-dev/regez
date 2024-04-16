@@ -13,6 +13,36 @@ use crate::{
 // BracketExpr ::= `[` CharacterClass | `^`CharacterClass `]` | char
 // CharacterClass ::=
 
+fn merge_ranges(mut ranges: Vec<(u8, u8)>) -> Vec<(u8, u8)> {
+    if ranges.is_empty() {
+        return ranges;
+    }
+
+    // Sort ranges by the starting value
+    ranges.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut merged_ranges = vec![];
+
+    // Start with the first range
+    let mut current_range = ranges[0].clone();
+
+    for next_range in ranges.into_iter().skip(1) {
+        if next_range.0 <= current_range.1 {
+            // If the next range overlaps or is consecutive, merge it
+            current_range.1 = current_range.1.max(next_range.1);
+        } else {
+            // If the next range does not overlap, push the current range and move to the next
+            merged_ranges.push(current_range);
+            current_range = next_range;
+        }
+    }
+
+    // Push the last merged range
+    merged_ranges.push(current_range);
+
+    merged_ranges
+}
+
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -111,13 +141,13 @@ impl Parser {
                 self.nfa.add_e_transition(s1, s2);
 
                 return (conn.0, s2);
-            },
+            }
             Token::Repeat(n) => {
                 self.advance();
 
                 let mut connector = conn.1;
 
-                for _ in 0..n-1 {
+                for _ in 0..n - 1 {
                     let new_conn = self.nfa.clone_subgraph(conn.0, conn.1);
 
                     self.nfa.add_e_transition(connector, new_conn.0);
@@ -129,7 +159,7 @@ impl Parser {
             Token::RepeatRange(Some(a), Some(b)) => {
                 todo!()
             }
-            
+
             _ => {}
         };
 
@@ -158,37 +188,63 @@ impl Parser {
                     inclusive = false;
                 }
 
-                let s1 = self.nfa.add_state();
-                let s2 = self.nfa.add_state();
-
-                let mut list = Vec::new();
+                let mut ranges: Vec<(u8, u8)> = Vec::new();
 
                 while !self.matches(Token::RightBracket) {
-                    list.push(self.character_class());
+                    let range = self.character_class();
+                    ranges.push(range);
                 }
 
-                // let transition = if inclusive {
-                //     Transition::Any(list)
-                // } else {
-                //     Transition::ExclusiveList(list)
-                // };
+                assert!(inclusive, "Not implemented");
 
-                self.nfa.add_transition(
-                    s1,
-                    s2,
-                    Transition::ClassList {
-                        content: list,
-                        inclusive,
-                    },
-                );
-                (s1, s2)
+                let mut ranges = merge_ranges(ranges);
+
+                let mut conn1 = {
+                    let first_range = ranges.pop().unwrap();
+
+                    let s1 = self.nfa.add_state();
+                    let s2 = self.nfa.add_state();
+
+                    self.nfa.add_transition(
+                        s1,
+                        s2,
+                        Transition::Range(first_range.0, first_range.1),
+                    );
+
+                    (s1, s2)
+                };
+
+                for range in ranges {
+                    let conn2 = {
+                        let s1 = self.nfa.add_state();
+                        let s2 = self.nfa.add_state();
+
+                        self.nfa
+                            .add_transition(s1, s2, Transition::Range(range.0, range.1));
+
+                        (s1, s2)
+                    };
+
+                    let s1 = self.nfa.add_state();
+                    let s2 = self.nfa.add_state();
+
+                    self.nfa.add_e_transition(s1, conn1.0);
+                    self.nfa.add_e_transition(s1, conn2.0);
+                    self.nfa.add_e_transition(conn1.1, s2);
+                    self.nfa.add_e_transition(conn2.1, s2);
+
+                    conn1 = (s1, s2);
+                }
+
+                conn1
             }
             Token::Char(c) => {
                 self.advance();
 
                 let s1 = self.nfa.add_state();
                 let s2 = self.nfa.add_state();
-                self.nfa.add_transition(s1, s2, Transition::Char(c));
+                self.nfa
+                    .add_transition(s1, s2, Transition::Range(c as u8, c as u8));
                 (s1, s2)
             }
             Token::Dot => {
@@ -196,35 +252,36 @@ impl Parser {
 
                 let s1 = self.nfa.add_state();
                 let s2 = self.nfa.add_state();
-                self.nfa.add_transition(s1, s2, Transition::Any);
+                self.nfa
+                    .add_transition(s1, s2, Transition::Range(0, 127));
                 (s1, s2)
             }
             _ => panic!("Invalid expression: {:?}", self.peek()),
         }
     }
 
-    fn character_class(&mut self) -> CharacterClass {
+    fn character_class(&mut self) -> (u8, u8) {
         match self.advance() {
             Token::Char(c1) => {
                 if self.matches(Token::Hyphen) {
                     match self.advance() {
-                        Token::Char(c2) => CharacterClass::Range { from: c1, to: c2 },
-                        Token::Dot => CharacterClass::Char('.'),
-                        Token::QuestionMark => CharacterClass::Char('?'),
-                        Token::Plus => CharacterClass::Char('+'),
-                        Token::Star => CharacterClass::Char('*'),
-                        Token::Union => CharacterClass::Char('|'),
+                        Token::Char(c2) => (c1 as u8, c2 as u8),
+                        Token::Dot => ('.' as u8, '.' as u8),
+                        Token::QuestionMark => ('?' as u8, '?' as u8),
+                        Token::Plus => ('+' as u8, '+' as u8),
+                        Token::Star => ('*' as u8, '*' as u8),
+                        Token::Union => ('|' as u8, '|' as u8),
                         t => panic!("Not implemented: {t:?}"),
                     }
                 } else {
-                    CharacterClass::Char(c1)
+                    (c1 as u8, c1 as u8)
                 }
             }
-            Token::Dot => CharacterClass::Char('.'),
-            Token::QuestionMark => CharacterClass::Char('?'),
-            Token::Plus => CharacterClass::Char('+'),
-            Token::Star => CharacterClass::Char('*'),
-            Token::Union => CharacterClass::Char('|'),
+            Token::Dot => ('.' as u8, '.' as u8),
+            Token::QuestionMark => ('?' as u8, '?' as u8),
+            Token::Plus => ('+' as u8, '+' as u8),
+            Token::Star => ('*' as u8, '*' as u8),
+            Token::Union => ('|' as u8, '|' as u8),
             t => panic!("Not implemented"),
         }
     }

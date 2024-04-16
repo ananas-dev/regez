@@ -258,11 +258,6 @@ impl Nfa {
             }
         }
 
-        dbg!(res
-            .iter()
-            .map(|(k, v)| (k.index(), v.iter().collect::<Vec<usize>>()))
-            .collect::<Vec<_>>());
-
         res
     }
 

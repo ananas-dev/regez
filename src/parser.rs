@@ -175,7 +175,7 @@ impl Parser {
                 if self.matches(Token::RightParen) {
                     conn
                 } else {
-                    dbg!(self.peek());
+                    self.peek();
                     panic!("Unbalanced paren")
                 }
             }

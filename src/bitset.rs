@@ -94,7 +94,14 @@ impl<'a, T: PartialEq + Copy> BitSet<T> {
             .for_each(|(a, b)| *a |= b);
     }
 
-    pub fn exclusion_inplace(&mut self, other: &BitSet<T>) {
+    pub fn intersection_inplace(&mut self, other: &BitSet<T>) {
+        self.inner
+            .iter_mut()
+            .zip(other.inner.iter())
+            .for_each(|(a, b)| *a &= b);
+    }
+
+    pub fn difference_inplace(&mut self, other: &BitSet<T>) {
         self.inner
             .iter_mut()
             .zip(other.inner.iter())

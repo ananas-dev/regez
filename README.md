@@ -7,7 +7,7 @@ The first pass converts the regular expression into a nondeterministic finite au
 ## How to use it
 
 ```sh
-cargo run --release -- "a(b|c)?" > test.c
+cargo run --release -- "(a|b)c?" > test.c
 # You can run the example main or use the test.h api
 gcc main.c test.c -o tester
 ./tester "ab"
@@ -18,7 +18,7 @@ gcc main.c test.c -o tester
 If you have graphviz installed you can generate images of each stage of processing using the `-d` flag.
 
 ```sh
-cargo run --release -- -d "a(b|c)?"
+cargo run --release -- -d "(a|b)c?"
 ```
 
 ![Fist stage](img/stage1.png)

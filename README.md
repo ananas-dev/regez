@@ -21,8 +21,11 @@ If you have graphviz installed you can generate images of each stage of processi
 cargo run --release -- -d "(a|b)c?"
 ```
 
+## First stage (NFA)
 ![Fist stage](img/stage1.png)
+## Second stage (DFA)
 ![Second stage](img/stage2.png)
+## Third stage (Range optimization)
 ![Third stage](img/stage3.png)
 
 ## Issues
